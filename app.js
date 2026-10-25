@@ -7,9 +7,13 @@ const KEY = 'gridpaper-doc-v1';
 const mods = { '2d': d2, '3d': d3 };
 
 const blank = () => ({ title: 'Untitled design', notes: '', mode: '2d', d2: d2.TEMPLATES[0].build(), d3: d3.TEMPLATES[0].build() });
+// Saved and opened designs are untrusted input (files get shared), so every field is re-typed here.
+function clean(d) {
+  if (!d?.d2 || !d?.d3) throw new Error('not a Gridpaper design');
+  return { title: String(d.title ?? 'Untitled design'), notes: String(d.notes ?? ''), mode: d.mode === '3d' ? '3d' : '2d', d2: d2.clean(d.d2), d3: d3.clean(d.d3) };
+}
 function load() {
-  try { const d = JSON.parse(localStorage.getItem(KEY)); if (d?.d2 && d?.d3) return d; } catch {}
-  return blank();
+  try { return clean(JSON.parse(localStorage.getItem(KEY))); } catch { return blank(); }
 }
 function persist() { try { localStorage.setItem(KEY, JSON.stringify(doc)); } catch {} }
 
@@ -31,7 +35,7 @@ function commit() {
   if (s !== last) { past.push(last); if (past.length > 200) past.shift(); future = []; last = s; persist(); }
   renderProps();
 }
-function restore(s) { doc = JSON.parse(s); last = s; persist(); refresh(); }
+function restore(s) { doc = clean(JSON.parse(s)); last = s; persist(); refresh(); }
 function undo() { if (past.length) { future.push(last); restore(past.pop()); } }
 function redo() { if (future.length) { past.push(last); restore(future.pop()); } }
 
@@ -177,9 +181,7 @@ $('#file').onchange = async e => {
   e.target.value = '';
   if (!f) return;
   try {
-    const d = JSON.parse(await f.text());
-    if (!d.d2 || !d.d3) throw 0;
-    doc = d; sel = null; refresh(); mod().fit(); commit();
+    doc = clean(JSON.parse(await f.text())); sel = null; refresh(); mod().fit(); commit();
     toast('Opened ' + f.name);
   } catch { toast('That file is not a Gridpaper design.'); }
 };

@@ -34,6 +34,18 @@ function make(key, x = 0, y = 0, z = 0, o = {}) {
   return { id: uid(), prim, label, w, h, d, bevel, segs, style, pos: [x, y, z], rot: [0, 0, 0], note: '', ...o };
 }
 
+// Opened files are untrusted: force every field to its expected type.
+const num = v => Number.isFinite(+v) ? +v : 0;
+const vec = a => [0, 1, 2].map(i => num(Array.isArray(a) ? a[i] : 0));
+export const clean = p => ({
+  items: (Array.isArray(p?.items) ? p.items : []).map(it => ({
+    id: /^[a-z0-9]{1,16}$/.test(it?.id) ? it.id : uid(), prim: PRIMS[it?.prim] ? it.prim : 'box',
+    label: String(it.label ?? ''), w: num(it.w) || 1, h: num(it.h) || 1, d: num(it.d) || 1,
+    bevel: num(it.bevel), segs: Math.min(12, Math.max(1, Math.round(num(it.segs)) || 3)),
+    style: ['solid', 'dark', 'ghost'].includes(it.style) ? it.style : 'solid', pos: vec(it.pos), rot: vec(it.rot), note: String(it.note ?? ''),
+  })),
+});
+
 // ---- geometry: every shape is built centred on X/Z with its base at y = 0 ----
 function lathe(R, H, b, s) {
   const pts = [V2(0, 0)];

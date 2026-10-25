@@ -41,6 +41,20 @@ export const PALETTE = [
 ].map(([g, ks]) => [g, ks.map(k => [k, KINDS[k][0]])]);
 export const HINT = 'Drag to move · corners resize · drag empty space to pan · wheel zooms · arrows nudge · Alt = no snap · F = fit';
 
+// Opened files are untrusted: force every field to its expected type before it reaches the SVG markup.
+const num = v => Number.isFinite(+v) ? +v : 0;
+export function clean(p) {
+  const b = p?.board || {};
+  return {
+    board: { name: String(b.name ?? 'Custom'), w: num(b.w) || 1440, h: num(b.h) || 900 },
+    items: (Array.isArray(p?.items) ? p.items : []).map(it => ({
+      id: /^[a-z0-9]{1,16}$/.test(it?.id) ? it.id : uid(), kind: KINDS[it?.kind] ? it.kind : 'section',
+      x: num(it.x), y: num(it.y), w: num(it.w), h: num(it.h), r: num(it.r),
+      label: String(it.label ?? ''), text: String(it.text ?? ''), note: String(it.note ?? ''),
+    })),
+  };
+}
+
 const make = (kind, x, y, w, h, label, text = '', extra = {}) =>
   ({ id: uid(), kind, x, y, w, h, r: KINDS[kind][4], label: label || KINDS[kind][0], text, note: '', ...extra });
 
