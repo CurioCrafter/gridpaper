@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Gridpaper</title>
+<meta name="description" content="Sketch 2D layouts and 3D blockouts on grid paper, label everything, and export an image plus a description Claude can build from.">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body data-mode="2d">
+<header>
+  <b class="logo">▦ Gridpaper</b>
+  <div class="tabs">
+    <button data-mode="2d">2D Layout</button><button data-mode="3d">3D Scene</button>
+  </div>
+  <select id="template" title="Start from a template"></select>
+  <span class="grow"></span>
+  <button id="undo" title="Undo (Ctrl+Z)">Undo</button>
+  <button id="redo" title="Redo (Ctrl+Y)">Redo</button>
+  <button id="open" title="Open a .gridpaper.json file">Open</button>
+  <button id="save" title="Save the design as a file (Ctrl+S)">Save</button>
+  <span class="sep"></span>
+  <button id="copyImg" class="primary" title="Copy the picture to paste into Claude">Copy image</button>
+  <button id="copyMd" class="primary" title="Copy the written description for Claude">Copy description</button>
+  <button id="export" class="primary" title="Download the picture (.png) and description (.md)">Download for Claude</button>
+  <button id="help" title="How it works">?</button>
+  <input type="file" id="file" accept=".json,application/json" hidden>
+</header>
+<main>
+  <aside id="palette"></aside>
+  <section id="stage">
+    <svg id="view2d"></svg>
+    <div id="view3d"></div>
+    <div id="toolbar"></div>
+  </section>
+  <aside id="props"></aside>
+</main>
+<div id="toast"></div>
+<dialog id="helpDlg">
+  <h2>Gridpaper in 30 seconds</h2>
+  <ol>
+    <li>Pick <b>2D Layout</b> (websites, app screens) or <b>3D Scene</b> (rooms, objects, game levels).</li>
+    <li>Start from a <b>template</b> or click shapes in the left panel to add them.</li>
+    <li>Select anything and give it a clear <b>label</b> and a <b>note for Claude</b> on the right.</li>
+    <li>Press <b>Copy image</b> and paste it into Claude Code, then <b>Copy description</b> and paste that too. Or <b>Download for Claude</b> to get both files.</li>
+  </ol>
+  <h3>2D</h3>
+  <p>Drag to move, corner squares to resize, drag empty space to pan, wheel to zoom. Arrows nudge (Shift = 100 px). Hold Alt to skip snapping. Red notes and arrows are for explaining behaviour.</p>
+  <h3>3D (Blender-style)</h3>
+  <p>Click to select. Drag to orbit, right-drag or Shift-drag to pan, wheel to zoom. <b>G</b> move, <b>R</b> rotate, <b>S</b> scale. Views: <b>1</b> front, <b>3</b> right, <b>7</b> top, <b>5</b> perspective, <b>F</b> fit. <b>X</b> deletes. Use the bevel presets to round or chamfer edges.</p>
+  <h3>Everywhere</h3>
+  <p>Ctrl+Z / Ctrl+Y undo and redo, Ctrl+D or Shift+D duplicate, Delete removes, Esc deselects. Your work is saved in this browser automatically; use Save to keep a file.</p>
+  <form method="dialog"><button class="primary">Got it</button></form>
+</dialog>
+<script type="module" src="app.js"></script>
+</body>
+</html>
