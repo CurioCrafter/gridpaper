@@ -13,33 +13,45 @@ const KINDS = {
   card: ['Card', 320, 360, 'box', 12],
   modal: ['Modal', 560, 400, 'box', 16],
   footer: ['Footer', 1440, 200, 'box', 0],
+  divider: ['Divider', 600, 10, 'divider', 0],
   heading: ['Heading', 600, 60, 'heading', 0],
   text: ['Paragraph', 500, 120, 'text', 0],
   image: ['Image', 400, 300, 'image', 0],
   video: ['Video', 640, 360, 'video', 0],
+  carousel: ['Carousel', 900, 400, 'carousel', 0],
   icon: ['Icon / avatar', 48, 48, 'circle', 0],
+  badge: ['Badge / tag', 90, 28, 'badge', 14],
   list: ['List', 400, 240, 'list', 0],
   table: ['Table', 800, 320, 'table', 0],
   chart: ['Chart', 600, 320, 'chart', 0],
+  map: ['Map', 400, 300, 'map', 0],
+  code: ['Code block', 500, 200, 'code', 8],
+  progress: ['Progress bar', 300, 12, 'progress', 6],
   button: ['Button', 160, 48, 'button', 8],
   link: ['Link', 120, 24, 'link', 0],
   input: ['Text input', 320, 48, 'input', 6],
+  textarea: ['Text area', 400, 120, 'textarea', 6],
   dropdown: ['Dropdown', 240, 48, 'dropdown', 6],
+  checkbox: ['Checkbox', 200, 24, 'check', 0],
+  radio: ['Radio button', 200, 24, 'radio', 0],
+  toggle: ['Toggle switch', 52, 28, 'toggle', 14],
+  slider: ['Slider', 300, 24, 'slider', 0],
   nav: ['Nav menu', 480, 40, 'nav', 0],
   tabs: ['Tabs', 480, 48, 'tabs', 0],
   note: ['Note', 260, 90, 'note', 0],
   arrow: ['Arrow', 200, 0, 'arrow', 0],
 };
-const ITEMS_LOOKS = new Set(['list', 'nav', 'tabs']);
+const ITEMS_LOOKS = new Set(['list', 'nav', 'tabs']), VALUE_LOOKS = new Set(['slider', 'progress']);
 const BOARDS = [['Desktop', 1440, 900], ['Laptop', 1280, 800], ['Tablet', 768, 1024], ['Mobile', 390, 844], ['Long page', 1440, 1600]];
 
 export const PALETTE = [
-  ['Layout', ['header', 'hero', 'section', 'sidebar', 'card', 'modal', 'footer']],
-  ['Content', ['heading', 'text', 'image', 'video', 'icon', 'list', 'table', 'chart']],
-  ['Controls', ['button', 'link', 'input', 'dropdown', 'nav', 'tabs']],
+  ['Layout', ['header', 'hero', 'section', 'sidebar', 'card', 'modal', 'footer', 'divider']],
+  ['Content', ['heading', 'text', 'image', 'video', 'carousel', 'icon', 'badge', 'list', 'table', 'chart', 'map', 'code', 'progress']],
+  ['Controls', ['button', 'link', 'input', 'textarea', 'dropdown', 'checkbox', 'radio', 'toggle', 'slider', 'nav', 'tabs']],
   ['Notes for Claude', ['note', 'arrow']],
 ].map(([g, ks]) => [g, ks.map(k => [k, KINDS[k][0]])]);
-export const HINT = 'Drag to move · corners resize · drag empty space to pan · wheel zooms · arrows nudge · Alt = no snap · F = fit';
+export const HINT = 'Drag to move · corners resize · drag empty space to box-select · scroll or right-drag to pan · Ctrl+scroll zooms · arrows nudge · Alt = no snap · F = fit';
+export const TARGETS = ['HTML + CSS', 'React + Tailwind', 'Next.js + Tailwind', 'Vue', 'Svelte', 'Flutter', 'SwiftUI', 'Jetpack Compose', 'Godot UI (Control nodes)', 'Unity UI', 'Figma-style design spec'];
 
 // Opened files are untrusted: force every field to its expected type before it reaches the SVG markup.
 const num = v => Number.isFinite(+v) ? +v : 0;
@@ -50,7 +62,7 @@ export function clean(p) {
     items: (Array.isArray(p?.items) ? p.items : []).map(it => ({
       id: /^[a-z0-9]{1,16}$/.test(it?.id) ? it.id : uid(), kind: KINDS[it?.kind] ? it.kind : 'section',
       x: num(it.x), y: num(it.y), w: num(it.w), h: num(it.h), r: num(it.r),
-      label: String(it.label ?? ''), text: String(it.text ?? ''), note: String(it.note ?? ''),
+      label: String(it.label ?? ''), text: String(it.text ?? ''), note: String(it.note ?? ''), locked: it.locked === true,
     })),
   };
 }
@@ -67,7 +79,8 @@ const CSS = `
 .hit{fill:#fff;fill-opacity:.01}
 .hitl{stroke:#fff;stroke-opacity:.01;stroke-width:16}
 .t{font-family:ui-sans-serif,system-ui,'Segoe UI',Arial,sans-serif;font-size:14px;fill:#111}
-.th{font-weight:700}.tb{font-weight:600}.tm{fill:#8a93a3}.tl{fill:#2563eb;text-decoration:underline}
+.th{font-weight:700}.tb{font-weight:600}.tm{fill:#8a93a3}.tl{fill:#2563eb;text-decoration:underline}.tw{fill:#fff}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:13px;fill:#e6e9ef}
 .note{fill:#fff1f3;stroke:#e11d48;stroke-width:1.5;stroke-dasharray:6 4}
 .nt{font-family:ui-sans-serif,system-ui,'Segoe UI',Arial,sans-serif;fill:#e11d48}
 .arrow{stroke:#e11d48;stroke-width:2.5}
@@ -76,6 +89,9 @@ const CSS = `
 .bdg rect{fill:#111}.bdg text{fill:#fff;font:600 11px ui-monospace,Consolas,monospace}
 .sel{fill:none;stroke:#2563eb;stroke-width:2;stroke-dasharray:6 3;vector-effect:non-scaling-stroke}
 .hd{fill:#fff;stroke:#2563eb;stroke-width:2;vector-effect:non-scaling-stroke}
+.guide{stroke:#ec4899;stroke-width:1;vector-effect:non-scaling-stroke}
+.mq{fill:#2563eb;fill-opacity:.06;stroke:#2563eb;stroke-dasharray:4 3;vector-effect:non-scaling-stroke}
+.lk{pointer-events:none}
 [data-id]{cursor:move}`;
 const DEFS = `<defs>
 <pattern id="g1" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M10 0H0V10" fill="none" stroke="#edf0f5" stroke-width="1"/></pattern>
@@ -83,11 +99,44 @@ const DEFS = `<defs>
 <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#e11d48"/></marker>
 </defs>`;
 
-let api, svg, layer, vb = { x: 0, y: 0, w: 1600, h: 1000 }, showLabels = true, snapOn = true, fitted = false, drag = null, space = false, noSel = false;
+let api, svg, layer, vb = { x: 0, y: 0, w: 1600, h: 1000 }, showLabels = true, snapOn = true, fitted = false;
+let drag = null, space = false, noSel = false, guides = [];
 const cur = () => api.part().items.find(i => i.id === api.sel);
 const scale = () => Math.max(vb.w / svg.clientWidth, vb.h / svg.clientHeight) || 1;
 const pt = e => new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse());
 const applyVB = () => svg.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
+// arrows can have negative width/height, so always go through this for bounds
+const box = it => ({ x: Math.min(it.x, it.x + it.w), y: Math.min(it.y, it.y + it.h), w: Math.abs(it.w), h: Math.abs(it.h) });
+function union(list) {
+  const bs = list.map(box), x = Math.min(...bs.map(b => b.x)), y = Math.min(...bs.map(b => b.y));
+  return { x, y, w: Math.max(...bs.map(b => b.x + b.w)) - x, h: Math.max(...bs.map(b => b.y + b.h)) - y };
+}
+function zoom(f, p = { x: vb.x + vb.w / 2, y: vb.y + vb.h / 2 }) {
+  const w = vb.w * f;
+  if (w < 80 || w > 30000) return;
+  vb = { x: p.x - (p.x - vb.x) * f, y: p.y - (p.y - vb.y) * f, w, h: vb.h * f };
+  applyVB();
+  render();
+}
+
+// Move the dragged box onto the nearest edge or centre of another element (or the artboard).
+function smartSnap(b, dx, dy, ids, sn, e) {
+  dx = sn(b.x + dx) - b.x; dy = sn(b.y + dy) - b.y;
+  guides = [];
+  if (!snapOn || e.altKey) return [dx, dy];
+  const { board, items } = api.part(), tol = 6 * scale();
+  const others = items.filter(i => !ids.has(i.id) && i.kind !== 'arrow').map(box).concat([{ x: 0, y: 0, w: board.w, h: board.h }]);
+  const best = (mine, theirs) => {
+    let r = null;
+    for (const m of mine) for (const t of theirs) { const d = t - m; if (Math.abs(d) < tol && (!r || Math.abs(d) < Math.abs(r.d))) r = { d, t }; }
+    return r;
+  };
+  const bx = best([b.x + dx, b.x + dx + b.w / 2, b.x + dx + b.w], others.flatMap(o => [o.x, o.x + o.w / 2, o.x + o.w]));
+  const by = best([b.y + dy, b.y + dy + b.h / 2, b.y + dy + b.h], others.flatMap(o => [o.y, o.y + o.h / 2, o.y + o.h]));
+  if (bx) { dx += bx.d; guides.push({ x: bx.t }); }
+  if (by) { dy += by.d; guides.push({ y: by.t }); }
+  return [dx, dy];
+}
 
 export function init(a, el) {
   api = a; svg = el;
@@ -99,17 +148,22 @@ export function init(a, el) {
   svg.addEventListener('contextmenu', e => e.preventDefault());
 
   svg.addEventListener('pointerdown', e => {
-    const hd = e.target.closest('[data-h]'), g = e.target.closest('[data-id]');
-    if (e.button !== 0 || space || (!hd && !g)) {
-      if (e.button === 0 && !space) api.select(null);
+    const hd = e.target.closest('[data-h]'), g = e.target.closest('[data-id]'), p = pt(e);
+    if (e.button !== 0 || space) {
       drag = { pan: true, sx: e.clientX, sy: e.clientY, vb: { ...vb } };
       e.preventDefault();
-    } else {
-      if (!hd) api.select(g.dataset.id);
+    } else if (hd) {
       const it = cur();
-      if (!it) return;
-      drag = { h: hd?.dataset.h, it, p0: pt(e), o: { ...it } };
-    }
+      drag = { h: hd.dataset.h, it, p0: p, o: { ...it } };
+    } else if (g) {
+      const id = g.dataset.id;
+      let clickId = null;
+      if (e.shiftKey) { api.select(id, true); if (!api.isSel(id)) return; }
+      else if (!api.isSel(id)) api.select(id);
+      else clickId = id;   // already part of a multi-selection: drag them all, or a plain click picks just this one
+      const list = api.part().items.filter(i => api.isSel(i.id) && !i.locked);
+      drag = { move: true, list: list.map(i => ({ i, x: i.x, y: i.y })), b: union(list), ids: new Set(list.map(i => i.id)), p0: p, clickId };
+    } else drag = { mq: true, p0: p, add: e.shiftKey };
     svg.setPointerCapture(e.pointerId);
   });
 
@@ -121,36 +175,53 @@ export function init(a, el) {
       vb.y = drag.vb.y - (e.clientY - drag.sy) * k;
       return applyVB();
     }
-    const p = pt(e), dx = p.x - drag.p0.x, dy = p.y - drag.p0.y, { it, o, h } = drag;
+    const p = pt(e), dx = p.x - drag.p0.x, dy = p.y - drag.p0.y;
     const sn = v => snapOn && !e.altKey ? Math.round(v / GRID) * GRID : Math.round(v);
-    if (!h) { it.x = sn(o.x + dx); it.y = sn(o.y + dy); }
-    else if (h === 'a') { it.x = sn(o.x + dx); it.y = sn(o.y + dy); it.w = o.x + o.w - it.x; it.h = o.y + o.h - it.y; }
-    else if (h === 'b') { it.w = sn(o.x + o.w + dx) - o.x; it.h = sn(o.y + o.h + dy) - o.y; }
-    else {
-      let x1 = o.x, y1 = o.y, x2 = o.x + o.w, y2 = o.y + o.h;
-      if (h.includes('w')) x1 = sn(x1 + dx);
-      if (h.includes('e')) x2 = sn(x2 + dx);
-      if (h.includes('n')) y1 = sn(y1 + dy);
-      if (h.includes('s')) y2 = sn(y2 + dy);
-      it.x = Math.min(x1, x2); it.y = Math.min(y1, y2);
-      it.w = Math.max(GRID, Math.abs(x2 - x1)); it.h = Math.max(GRID, Math.abs(y2 - y1));
+    if (drag.mq) { drag.p1 = p; return render(); }
+    if (drag.move) {
+      if (!drag.moved && Math.hypot(dx, dy) < 2 * scale()) return;
+      const [mx, my] = smartSnap(drag.b, dx, dy, drag.ids, sn, e);
+      for (const o of drag.list) { o.i.x = o.x + mx; o.i.y = o.y + my; }
+    } else {
+      const { it, o, h } = drag;
+      if (h === 'a') { it.x = sn(o.x + dx); it.y = sn(o.y + dy); it.w = o.x + o.w - it.x; it.h = o.y + o.h - it.y; }
+      else if (h === 'b') { it.w = sn(o.x + o.w + dx) - o.x; it.h = sn(o.y + o.h + dy) - o.y; }
+      else {
+        let x1 = o.x, y1 = o.y, x2 = o.x + o.w, y2 = o.y + o.h;
+        if (h.includes('w')) x1 = sn(x1 + dx);
+        if (h.includes('e')) x2 = sn(x2 + dx);
+        if (h.includes('n')) y1 = sn(y1 + dy);
+        if (h.includes('s')) y2 = sn(y2 + dy);
+        it.x = Math.min(x1, x2); it.y = Math.min(y1, y2);
+        it.w = Math.max(GRID, Math.abs(x2 - x1)); it.h = Math.max(GRID, Math.abs(y2 - y1));
+      }
     }
     drag.moved = true;
     render();
   });
 
   svg.addEventListener('pointerup', () => {
-    if (drag?.moved && !drag.pan) api.commit();
-    drag = null;
+    const d = drag;
+    drag = null; guides = [];
+    if (!d || d.pan) return;
+    if (d.mq) {
+      const r = d.p1 && { x: Math.min(d.p0.x, d.p1.x), y: Math.min(d.p0.y, d.p1.y), w: Math.abs(d.p1.x - d.p0.x), h: Math.abs(d.p1.y - d.p0.y) };
+      if (!r || r.w + r.h < 6 * scale()) return d.add ? render() : api.select(null);
+      const hit = api.part().items.filter(i => { const b = box(i); return !i.locked && b.x < r.x + r.w && b.x + b.w > r.x && b.y < r.y + r.h && b.y + b.h > r.y; });
+      return api.selectMany(hit.map(i => i.id), d.add);
+    }
+    if (d.moved) { render(); api.commit(); }
+    else if (d.clickId) api.select(d.clickId);
   });
 
+  // Figma-style: scroll pans, Ctrl/⌘ + scroll (or a trackpad pinch) zooms
   svg.addEventListener('wheel', e => {
     e.preventDefault();
-    const p = pt(e), f = Math.exp(e.deltaY * 0.0012), w = vb.w * f;
-    if (w < 80 || w > 30000) return;
-    vb = { x: p.x - (p.x - vb.x) * f, y: p.y - (p.y - vb.y) * f, w, h: vb.h * f };
+    if (e.ctrlKey || e.metaKey) return zoom(Math.exp(e.deltaY * (Math.abs(e.deltaY) < 40 ? 0.01 : 0.0015)), pt(e));
+    const k = scale();
+    vb.x += (e.shiftKey ? e.deltaY : e.deltaX) * k;
+    vb.y += (e.shiftKey ? 0 : e.deltaY) * k;
     applyVB();
-    if (api.sel) render();
   }, { passive: false });
 }
 
@@ -186,17 +257,28 @@ function block(s, x, y, w, h, cls, max, center = false) {
   return `<text class="${cls}" style="font-size:${fs}px"${center ? ' text-anchor="middle"' : ''}>${L.map((l, i) => `<tspan x="${tx}" y="${y0 + i * fs * 1.2}">${esc(l)}</tspan>`).join('')}</text>`;
 }
 const listItems = (t, fallback) => { const a = String(t || '').split(',').map(s => s.trim()).filter(Boolean); return a.length ? a : fallback; };
+const pct = t => Math.min(100, Math.max(0, parseFloat(t) || 60)) / 100;
 
 function itemSVG(it, n) {
   const { x, y, w, h } = it, look = KINDS[it.kind]?.[3] || 'box', t = it.text || '';
   const r = Math.max(0, Math.min(it.r || 0, w / 2, h / 2)), cx = x + w / 2, cy = y + h / 2;
   const rect = c => `<rect class="${c}" x="${x}" y="${y}" width="${w}" height="${h}" rx="${r}"/>`;
+  const cross = (x0, y0, x1, y1) => `<path class="thin" d="M${x0} ${y0}L${x1} ${y1}M${x1} ${y0}L${x0} ${y1}"/>`;
   let b = '';
   switch (look) {
     case 'box': b = rect('el'); break;
-    case 'image': b = rect('el') + `<path class="thin" d="M${x} ${y}L${x + w} ${y + h}M${x + w} ${y}L${x} ${y + h}"/>`; break;
+    case 'image': b = rect('el') + cross(x, y, x + w, y + h); break;
     case 'video': { const s = Math.min(w, h) * 0.14; b = rect('el') + `<path class="fk" d="M${cx - s * 0.8} ${cy - s}L${cx + s} ${cy}L${cx - s * 0.8} ${cy + s}z"/>`; break; }
+    case 'carousel': {
+      const s = Math.min(18, h * 0.08);
+      b = rect('el') + cross(x + 60, y + 16, x + w - 60, y + h - 40)
+        + [x + 28, x + w - 28].map((ax, i) => `<circle class="el" cx="${ax}" cy="${cy}" r="${s}"/><path class="thin" style="stroke-width:2;stroke-opacity:1" d="M${ax + (i ? -4 : 4)} ${cy - 7}l${i ? 8 : -8} 7l${i ? -8 : 8} 7"/>`).join('')
+        + [0, 1, 2, 3].map(i => `<circle class="${i ? 'thin' : 'fk'}" cx="${cx + (i - 1.5) * 18}" cy="${y + h - 20}" r="4.5"/>`).join('');
+      break;
+    }
     case 'circle': b = `<ellipse class="el" cx="${cx}" cy="${cy}" rx="${w / 2}" ry="${h / 2}"/>`; break;
+    case 'badge': b = `<rect class="fk" x="${x}" y="${y}" width="${w}" height="${h}" rx="${r}"/>` + block(t || it.label, x + 6, y, w - 12, h, 't tw tb', Math.min(14, h * 0.5), true); break;
+    case 'divider': b = rect('hit') + `<line stroke="#111" stroke-width="2" x1="${x}" y1="${cy}" x2="${x + w}" y2="${cy}"/>`; break;
     case 'heading': b = rect('ghost') + block(t || it.label, x + 8, y + 2, w - 16, h - 4, 't th', Math.min(64, h * 0.7)); break;
     case 'text':
       b = rect('ghost');
@@ -208,6 +290,27 @@ function itemSVG(it, n) {
     case 'input': case 'dropdown':
       b = rect('el') + `<text class="t tm" x="${x + 12}" y="${cy}" dominant-baseline="central">${esc(t || it.label)}</text>`;
       if (look === 'dropdown') b += `<path class="thin" d="M${x + w - 30} ${cy - 4}l8 8l8-8"/>`;
+      break;
+    case 'textarea': b = rect('el') + block(t || it.label, x + 12, y + 8, w - 24, Math.min(h - 16, 40), 't tm', 14) + `<path class="thin" d="M${x + w - 14} ${y + h - 6}l8 -8M${x + w - 9} ${y + h - 5}l4 -4"/>`; break;
+    case 'check': case 'radio': {
+      const s = Math.min(h, 20), by = cy - s / 2;
+      b = rect('hit') + (look === 'check'
+        ? `<rect class="el" x="${x}" y="${by}" width="${s}" height="${s}" rx="4"/><path class="thin" style="stroke-width:2.5;stroke-opacity:1" d="M${x + s * 0.22} ${cy}l${s * 0.2} ${s * 0.22}l${s * 0.38} ${-s * 0.42}"/>`
+        : `<circle class="el" cx="${x + s / 2}" cy="${cy}" r="${s / 2}"/><circle class="fk" cx="${x + s / 2}" cy="${cy}" r="${s / 4}"/>`)
+        + `<text class="t" x="${x + s + 10}" y="${cy}" dominant-baseline="central">${esc(t || it.label)}</text>`;
+      break;
+    }
+    case 'toggle': b = rect('el') + `<circle class="fk" cx="${x + w - h / 2}" cy="${cy}" r="${Math.max(2, h / 2 - 5)}"/>`; break;
+    case 'slider': { const v = pct(t); b = rect('hit') + `<line class="scrib" x1="${x}" y1="${cy}" x2="${x + w}" y2="${cy}"/><line stroke="#111" stroke-width="5" stroke-linecap="round" x1="${x}" y1="${cy}" x2="${x + w * v}" y2="${cy}"/><circle class="el" cx="${x + w * v}" cy="${cy}" r="${Math.min(h / 2, 10)}"/>`; break; }
+    case 'progress': b = rect('el') + `<rect class="fk" x="${x}" y="${y}" width="${w * pct(t)}" height="${h}" rx="${r}"/>`; break;
+    case 'map':
+      b = rect('el') + `<path class="thin" d="M${x} ${y + h * 0.7}C${x + w * 0.3} ${y + h * 0.5} ${x + w * 0.6} ${y + h * 0.9} ${x + w} ${y + h * 0.6}M${x + w * 0.35} ${y}L${x + w * 0.45} ${y + h}M${x} ${y + h * 0.3}L${x + w} ${y + h * 0.25}"/>`
+        + `<path class="fk" d="M${cx} ${cy}l-9 -14a10 10 0 1 1 18 0z"/>`;
+      break;
+    case 'code':
+      b = `<rect fill="#1f2430" x="${x}" y="${y}" width="${w}" height="${h}" rx="${r}"/>`;
+      if (t) b += `<text class="mono">${String(t).split('\n').slice(0, Math.max(1, Math.floor((h - 16) / 18))).map((l, i) => `<tspan x="${x + 16}" y="${y + 26 + i * 18}">${esc(l)}</tspan>`).join('')}</text>`;
+      else for (let ly = y + 22, i = 0; ly < y + h - 10; ly += 20, i++) { const ind = i % 4 === 1 || i % 4 === 2 ? 24 : 0; b += `<line stroke="#7c8aa5" stroke-width="5" stroke-linecap="round" x1="${x + 16 + ind}" y1="${ly}" x2="${x + 16 + ind + Math.min(w - 40 - ind, 60 + ((i * 53) % 5) * w * 0.1)}" y2="${ly}"/>`; }
       break;
     case 'list': {
       const L = t ? listItems(t, []) : null;
@@ -255,9 +358,10 @@ function itemSVG(it, n) {
   return b;
 }
 
-function selSVG(it) {
+function selSVG(it, handles) {
   const s = 10 * scale(), { x, y, w, h } = it;
-  const pts = it.kind === 'arrow' ? [['a', x, y], ['b', x + w, y + h]] : [['nw', x, y], ['ne', x + w, y], ['sw', x, y + h], ['se', x + w, y + h]];
+  if (it.kind === 'arrow' && !handles) { const b = box(it); return `<rect class="sel" x="${b.x - 4}" y="${b.y - 4}" width="${b.w + 8}" height="${b.h + 8}"/>`; }
+  const pts = !handles ? [] : it.kind === 'arrow' ? [['a', x, y], ['b', x + w, y + h]] : [['nw', x, y], ['ne', x + w, y], ['sw', x, y + h], ['se', x + w, y + h]];
   return (it.kind === 'arrow' ? '' : `<rect class="sel" x="${x}" y="${y}" width="${w}" height="${h}"/>`)
     + pts.map(([k, px, py]) => `<rect class="hd" data-h="${k}" style="cursor:${k.length < 2 ? 'crosshair' : (k === 'nw' || k === 'se' ? 'nwse' : 'nesw') + '-resize'}" x="${px - s / 2}" y="${py - s / 2}" width="${s}" height="${s}"/>`).join('');
 }
@@ -266,9 +370,13 @@ export function render() {
   if (!layer) return;
   const { board, items } = api.part();
   let s = `<rect class="board" x="0" y="0" width="${board.w}" height="${board.h}"/><text class="bn" x="0" y="-30">${esc(board.name || 'Custom')} · ${board.w} × ${board.h}</text>`;
-  items.forEach((it, i) => { s += `<g data-id="${it.id}">${itemSVG(it, i + 1)}</g>`; });
-  const it = !noSel && cur();
-  if (it) s += selSVG(it);
+  items.forEach((it, i) => { s += `<g data-id="${it.id}"${it.locked ? ' class="lk"' : ''}>${itemSVG(it, i + 1)}</g>`; });
+  if (!noSel) {
+    const sel = items.filter(i => api.isSel(i.id));
+    sel.forEach(it => { s += selSVG(it, sel.length === 1 && !it.locked); });
+    for (const g of guides) s += g.x != null ? `<line class="guide" x1="${g.x}" y1="${vb.y}" x2="${g.x}" y2="${vb.y + vb.h}"/>` : `<line class="guide" x1="${vb.x}" y1="${g.y}" x2="${vb.x + vb.w}" y2="${g.y}"/>`;
+    if (drag?.mq && drag.p1) s += `<rect class="mq" x="${Math.min(drag.p0.x, drag.p1.x)}" y="${Math.min(drag.p0.y, drag.p1.y)}" width="${Math.abs(drag.p1.x - drag.p0.x)}" height="${Math.abs(drag.p1.y - drag.p0.y)}"/>`;
+  }
   layer.innerHTML = s;
 }
 
@@ -282,17 +390,22 @@ export const offset = it => { it.x += 20; it.y += 20; };
 
 export function key(e) {
   if (e.key === 'f' || e.key === 'F' || e.key === 'Home') { fit(); return true; }
-  const it = cur(), st = e.shiftKey ? GRID * 10 : GRID;
+  if (e.key === '+' || e.key === '=') { zoom(0.8); return true; }
+  if (e.key === '-') { zoom(1.25); return true; }
+  const list = api.part().items.filter(i => api.isSel(i.id)), st = e.shiftKey ? GRID * 10 : GRID;
   const d = { ArrowLeft: [-st, 0], ArrowRight: [st, 0], ArrowUp: [0, -st], ArrowDown: [0, st] }[e.key];
-  if (!it || !d) return false;
-  it.x += d[0]; it.y += d[1];
+  if (!list.length || !d) return false;
+  list.forEach(it => { it.x += d[0]; it.y += d[1]; });
   render(); api.commit();
   return true;
 }
 
-export const toolbar = () => `<button data-act="fit" title="F">Fit</button><button data-act="labels" class="${showLabels ? 'on' : ''}">Labels</button><button data-act="snap" class="${snapOn ? 'on' : ''}">Snap ${GRID}px</button>`;
+export const toolbar = () => `<button data-act="fit" title="F">Fit</button><button data-act="out" title="−">−</button><button data-act="in" title="+">+</button>`
+  + `<button data-act="labels" class="${showLabels ? 'on' : ''}">Labels</button><button data-act="snap" class="${snapOn ? 'on' : ''}">Snap + guides</button>`;
 export function act(a) {
   if (a === 'fit') fit();
+  if (a === 'in') zoom(0.8);
+  if (a === 'out') zoom(1.25);
   if (a === 'labels') { showLabels = !showLabels; render(); }
   if (a === 'snap') snapOn = !snapOn;
 }
@@ -303,13 +416,19 @@ export function fields(it) {
     { key: 'label', label: 'Label (what this is)', type: 'text' },
     { key: 'kind', label: 'Element type', type: 'select', options: Object.entries(KINDS).map(([k, v]) => [k, v[0]]) },
   ];
-  if (!arrow) f.push({ key: 'text', type: 'textarea', label: ITEMS_LOOKS.has(look) ? 'Items (comma-separated)' : look === 'image' || look === 'video' ? 'What it shows' : look === 'note' ? 'Note text' : 'Text content' });
+  if (!arrow && look !== 'divider') f.push({ key: 'text', type: VALUE_LOOKS.has(look) ? 'number' : 'textarea',
+    label: ITEMS_LOOKS.has(look) ? 'Items (comma-separated)' : VALUE_LOOKS.has(look) ? 'Value (0–100)' : look === 'image' || look === 'video' || look === 'carousel' || look === 'map' ? 'What it shows'
+      : look === 'note' ? 'Note text' : look === 'code' ? 'Code (optional)' : look === 'input' || look === 'textarea' ? 'Placeholder' : 'Text content' });
   f.push({ key: 'note', label: arrow ? 'What happens (e.g. "click opens modal")' : 'Note for Claude (behaviour, style, data…)', type: 'textarea' });
   for (const k of ['x', 'y', 'w', 'h']) f.push({ key: k, half: true, type: 'number', label: { x: 'X', y: 'Y', w: arrow ? 'Δ X' : 'Width', h: arrow ? 'Δ Y' : 'Height' }[k] });
-  if (!arrow && look !== 'link') f.push(
+  if (!arrow && look !== 'link' && look !== 'divider') f.push(
     { key: 'r', label: 'Corner radius', type: 'range', min: 0, max: Math.floor(Math.min(it.w, it.h) / 2) },
     { label: 'Corner presets', type: 'presets', options: [['Sharp', o => { o.r = 0; }], ['Soft', o => { o.r = 6; }], ['Round', o => { o.r = 16; }], ['Pill', o => { o.r = Math.floor(Math.min(o.w, o.h) / 2); }]] },
   );
+  const b = api.part().board;
+  f.push({ label: 'Align on artboard', type: 'presets', options: [
+    ['Left', o => { o.x = 0; }], ['Centre', o => { o.x = Math.round((b.w - o.w) / 2); }], ['Right', o => { o.x = b.w - o.w; }],
+    ['Full width', o => { o.x = 0; o.w = b.w; }], ['Top', o => { o.y = 0; }], ['Middle', o => { o.y = Math.round((b.h - o.h) / 2); }]] });
   return f;
 }
 
@@ -329,8 +448,8 @@ export async function snapshot() {
   const { board, items } = api.part();
   let x0 = 0, y0 = 0, x1 = board.w, y1 = board.h;
   for (const it of items) {
-    x0 = Math.min(x0, it.x, it.x + it.w); y0 = Math.min(y0, it.y, it.y + it.h);
-    x1 = Math.max(x1, it.x, it.x + it.w); y1 = Math.max(y1, it.y, it.y + it.h);
+    const b = box(it);
+    x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + b.w); y1 = Math.max(y1, b.y + b.h);
   }
   x0 -= 40; y0 -= 60; x1 += 40; y1 += 40;
   noSel = true; render();
@@ -368,7 +487,7 @@ export function describe() {
     const pad = '  '.repeat(d), look = KINDS[it.kind][3];
     let s = `${pad}- **#${num(it)} ${it.label}** (${KINDS[it.kind][0].toLowerCase()}): ${it.w}×${it.h} at x ${it.x}, y ${it.y}`;
     if (it.r) s += `, corner radius ${it.r}`;
-    if (it.text) s += `, ${ITEMS_LOOKS.has(look) ? 'items' : look === 'image' || look === 'video' ? 'shows' : 'text'}: "${it.text.replace(/\n/g, ' / ')}"`;
+    if (it.text) s += `, ${ITEMS_LOOKS.has(look) ? 'items' : VALUE_LOOKS.has(look) ? 'value %' : ['image', 'video', 'carousel', 'map'].includes(look) ? 'shows' : look === 'input' || look === 'textarea' ? 'placeholder' : 'text'}: "${String(it.text).replace(/\n/g, ' / ')}"`;
     if (it.note) s += `\n${pad}  - Note: ${it.note}`;
     out.push(s);
     walk(it, d + 1);
@@ -388,7 +507,7 @@ export function describe() {
     '',
     '## How to read the image',
     '- Black outlines are UI elements. The black numbered tags match the list below.',
-    '- A box with an X is an image placeholder, ▶ is a video, grey bars are placeholder body text.',
+    '- A box with an X is an image placeholder, ▶ is a video, grey bars are placeholder text, a dark box with lines is a code block.',
     '- Red dashed boxes and red arrows are notes and interactions from the designer, not part of the UI.',
     '',
     '## Elements (indented = inside the element above)',
@@ -445,12 +564,25 @@ export const TEMPLATES = [
     T('tabs', 0, 764, 390, 80, 'Bottom tab bar', 'Home, Search, Saved, Profile'),
   ] }) },
   { name: 'Login', build: () => ({ board: { name: 'Desktop', w: 1440, h: 900 }, items: [
-    T('card', 520, 180, 400, 540, 'Login card', '', { r: 16 }), T('icon', 690, 220, 60, 60, 'Logo'),
+    T('card', 520, 180, 400, 560, 'Login card', '', { r: 16 }), T('icon', 690, 220, 60, 60, 'Logo'),
     T('heading', 560, 300, 320, 50, 'Title', 'Welcome back'),
     T('input', 560, 380, 320, 48, 'Email field', 'you@example.com'), T('input', 560, 448, 320, 48, 'Password field', '••••••••'),
-    T('button', 560, 524, 320, 52, 'Log-in button', 'Log in'), T('link', 640, 604, 160, 24, 'Forgot password link', 'Forgot password?'),
-    T('note', 1000, 500, 280, 90, 'Success note', 'On success, go to the dashboard. Show errors under the field.'),
-    T('arrow', 880, 550, 120, -5, 'Submit flow', '', { note: 'Submitting validates and logs in' }),
+    T('checkbox', 560, 510, 200, 24, 'Remember me', 'Remember me'),
+    T('button', 560, 550, 320, 52, 'Log-in button', 'Log in'), T('link', 640, 630, 160, 24, 'Forgot password link', 'Forgot password?'),
+    T('note', 1000, 520, 280, 90, 'Success note', 'On success, go to the dashboard. Show errors under the field.'),
+    T('arrow', 880, 576, 120, -10, 'Submit flow', '', { note: 'Submitting validates and logs in' }),
+  ] }) },
+  { name: 'Settings form', build: () => ({ board: { name: 'Desktop', w: 1440, h: 900 }, items: [
+    T('sidebar', 0, 0, 240, 900, 'Settings menu'), T('list', 24, 40, 192, 220, 'Settings sections', 'Profile, Account, Notifications, Billing, Privacy'),
+    T('heading', 300, 40, 600, 50, 'Page title', 'Profile settings'),
+    T('icon', 300, 120, 96, 96, 'Profile photo'), T('button', 420, 144, 160, 48, 'Change photo button', 'Change photo'),
+    T('input', 300, 250, 400, 48, 'Name field', 'Your name'), T('input', 730, 250, 400, 48, 'Email field', 'you@example.com'),
+    T('textarea', 300, 320, 830, 120, 'Bio field', 'A short bio'),
+    T('dropdown', 300, 470, 400, 48, 'Language dropdown', 'English'),
+    T('divider', 300, 540, 830, 10, 'Divider'),
+    T('toggle', 300, 580, 52, 28, 'Email updates toggle'), T('text', 370, 580, 400, 28, 'Email updates label', 'Send me product updates'),
+    T('toggle', 300, 630, 52, 28, 'Dark mode toggle'), T('text', 370, 630, 400, 28, 'Dark mode label', 'Dark mode'),
+    T('button', 970, 800, 160, 52, 'Save button', 'Save changes'), T('button', 790, 800, 160, 52, 'Cancel button', 'Cancel'),
   ] }) },
   { name: 'Pricing page', build: () => ({ board: { name: 'Desktop', w: 1440, h: 900 }, items: [
     ...header(1440),
@@ -474,6 +606,16 @@ export const TEMPLATES = [
     T('input', 1060, 540, 260, 48, 'Newsletter email', 'Your email'), T('button', 1060, 600, 260, 48, 'Subscribe button', 'Subscribe'),
     T('footer', 0, 1100, 1440, 120, 'Footer'),
   ] }) },
-  { name: 'Blank desktop', build: () => ({ board: { name: 'Desktop', w: 1440, h: 900 }, items: [] }) },
-  { name: 'Blank mobile', build: () => ({ board: { name: 'Mobile', w: 390, h: 844 }, items: [] }) },
+  { name: 'Online shop product', build: () => ({ board: { name: 'Desktop', w: 1440, h: 900 }, items: [
+    ...header(1440, 'Shop, New, Sale, About'),
+    T('carousel', 120, 130, 640, 560, 'Product photos', 'Product photos, swipe between them'),
+    T('badge', 820, 140, 90, 28, 'Sale badge', 'Sale'),
+    T('heading', 820, 180, 500, 90, 'Product name', 'Merino travel hoodie'),
+    T('heading', 820, 280, 300, 50, 'Price', '$89'),
+    T('text', 820, 350, 500, 100, 'Product description'),
+    T('tabs', 820, 470, 400, 44, 'Size picker', 'XS, S, M, L, XL'),
+    T('button', 820, 540, 300, 56, 'Add to cart button', 'Add to cart', { note: 'Shows a mini cart on click' }),
+    T('icon', 1140, 544, 48, 48, 'Favourite button'),
+    T('list', 820, 620, 400, 120, 'Shipping info', 'Free shipping over $50, 30-day returns'),
+  ] }) },
 ];

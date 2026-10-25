@@ -27,6 +27,9 @@ aside h4:first-child { margin-top: 0; }
 .pal { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
 .pal button { padding: 6px 4px; font-size: 12px; text-align: left; }
 .hint { color: var(--mute); font-size: 11px; margin: 14px 0 0; }
+aside h4 small { text-transform: none; letter-spacing: 0; font-weight: 400; }
+#layers { display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow: auto; }
+#layers button { flex: none; text-align: left; font-size: 11px; padding: 3px 6px; border-width: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 #stage { flex: 1; position: relative; min-width: 0; overflow: hidden; }
 #view2d, #view3d { position: absolute; inset: 0; width: 100%; height: 100%; }

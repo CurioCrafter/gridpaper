@@ -19,6 +19,7 @@
   <div class="tabs">
     <button data-mode="2d">2D Layout</button><button data-mode="3d">3D Scene</button>
   </div>
+  <button id="new" title="Clear this mode's canvas and start fresh">New blank</button>
   <select id="template" title="Start from a template"></select>
   <span class="grow"></span>
   <button id="undo" title="Undo (Ctrl+Z)">Undo</button>
@@ -51,11 +52,11 @@
     <li>Press <b>Copy image</b> and paste it into Claude Code, then <b>Copy description</b> and paste that too. Or <b>Download for Claude</b> to get both files.</li>
   </ol>
   <h3>2D</h3>
-  <p>Drag to move, corner squares to resize, drag empty space to pan, wheel to zoom. Arrows nudge (Shift = 100 px). Hold Alt to skip snapping. Red notes and arrows are for explaining behaviour.</p>
+  <p>Drag to move, corner squares to resize. Drag on empty space to box-select; Shift-click adds to the selection. Pink guide lines snap edges and centres to other elements. Scroll or right-drag (or Space-drag) to pan, Ctrl+scroll or pinch to zoom, <b>+</b>/<b>−</b> zoom, <b>F</b> fit. Arrows nudge (Shift = 100 px). Hold Alt to skip snapping. Red notes and arrows explain behaviour.</p>
   <h3>3D (Blender-style)</h3>
-  <p>Click to select. Drag to orbit, right-drag or Shift-drag to pan, wheel to zoom. <b>G</b> move, <b>R</b> rotate, <b>S</b> scale. Views: <b>1</b> front, <b>3</b> right, <b>7</b> top, <b>5</b> perspective, <b>F</b> fit. <b>X</b> deletes. Use the bevel presets to round or chamfer edges.</p>
+  <p>Click to select, Shift-click to add. Drag to orbit, right-drag or Shift-drag to pan, wheel to zoom. <b>G</b> move, <b>R</b> rotate, <b>S</b> scale. Views: <b>1</b> front, <b>3</b> right, <b>7</b> top, <b>5</b> perspective, <b>F</b> fit. <b>X</b> deletes. Bevel presets round or chamfer edges; the sides slider turns cylinders into prisms and cones into pyramids. <b>Drop down</b> sets an object onto whatever is below it. Red pins are notes.</p>
   <h3>Everywhere</h3>
-  <p>Ctrl+Z / Ctrl+Y undo and redo, Ctrl+D or Shift+D duplicate, Delete removes, Esc deselects. Your work is saved in this browser automatically; use Save to keep a file.</p>
+  <p><b>New blank</b> clears the current mode. Ctrl+Z / Ctrl+Y undo and redo, Ctrl+C / Ctrl+X / Ctrl+V copy, cut and paste, Ctrl+A select all, Ctrl+D or Shift+D duplicate, Delete removes, Esc deselects. <b>Lock</b> stops big backgrounds (sections, floors, walls) from being grabbed by accident; locked items can still be picked from the Elements list. Pick what Claude should build it with in the Design panel. Your work is saved in this browser automatically; use Save to keep a file.</p>
   <form method="dialog"><button class="primary">Got it</button></form>
 </dialog>
 <script type="module" src="app.js"></script>

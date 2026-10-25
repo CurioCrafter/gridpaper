@@ -12,26 +12,32 @@ const r3 = v => Math.round(v * 1000) / 1000;
 const V2 = (x, y) => new THREE.Vector2(x, y);
 const INK = 0x111111, ACCENT = 0x2563eb, DEG = Math.PI / 180;
 
-const PRIMS = { box: 'Box', cylinder: 'Cylinder', sphere: 'Sphere', cone: 'Cone', torus: 'Ring (torus)', capsule: 'Capsule', ramp: 'Ramp / wedge', arch: 'Arch', stairs: 'Stairs', person: 'Person (scale figure)' };
-const BEVEL = new Set(['box', 'cylinder', 'ramp', 'arch', 'stairs']);
-// palette key: [label, prim, w, h, d, bevel, bevel segments, style]
+const PRIMS = { box: 'Box', cylinder: 'Cylinder', sphere: 'Sphere', cone: 'Cone', torus: 'Ring (torus)', capsule: 'Capsule', ramp: 'Ramp / wedge', arch: 'Arch', stairs: 'Stairs',
+  tree: 'Tree', person: 'Person (scale figure)', pin: 'Note pin (marker)' };
+const BEVEL = new Set(['box', 'cylinder', 'ramp', 'arch', 'stairs']), SIDED = new Set(['cylinder', 'cone']);
+const POLY = { 3: 'triangular', 4: 'square', 5: 'pentagonal', 6: 'hexagonal', 8: 'octagonal' };
+// palette key: [label, prim, w, h, d, bevel, bevel segments, style, extra fields]
 const P = {
   box: ['Box', 'box', 1, 1, 1], rbox: ['Rounded box', 'box', 1, 1, 1, 0.15, 5], wall: ['Wall', 'box', 4, 2.5, 0.15], floor: ['Floor', 'box', 6, 0.05, 6],
   stairs: ['Stairs', 'stairs', 1.2, 1.8, 2.7], ramp: ['Ramp', 'ramp', 2, 1, 1.5], arch: ['Arch', 'arch', 2, 2.5, 0.4, 0.03, 3],
-  cylinder: ['Cylinder', 'cylinder', 1, 1, 1, 0.04, 3], sphere: ['Sphere', 'sphere', 1, 1, 1], cone: ['Cone', 'cone', 1, 1.2, 1],
+  door: ['Door', 'box', 0.9, 2.1, 0.05, 0, 3, 'dark'], window: ['Window', 'box', 1.2, 1, 0.05, 0, 3, 'ghost', { y: 0.9 }],
+  cylinder: ['Cylinder', 'cylinder', 1, 1, 1, 0.04, 3], hex: ['Hex prism', 'cylinder', 1, 0.5, 1, 0.02, 2, 'solid', { sides: 6 }],
+  sphere: ['Sphere', 'sphere', 1, 1, 1], cone: ['Cone', 'cone', 1, 1.2, 1], pyramid: ['Pyramid', 'cone', 1.4, 1, 1.4, 0, 3, 'solid', { sides: 4 }],
   torus: ['Ring', 'torus', 1, 0.2, 1], capsule: ['Capsule', 'capsule', 0.5, 1.5, 0.5],
-  person: ['Person 1.8 m', 'person', 0.5, 1.8, 0.3], zone: ['Zone / glass', 'box', 2, 2, 2, 0, 3, 'ghost'],
+  person: ['Person 1.8 m', 'person', 0.5, 1.8, 0.3], tree: ['Tree', 'tree', 1.6, 3.5, 1.6], zone: ['Zone / glass', 'box', 2, 2, 2, 0, 3, 'ghost'],
+  pin: ['Note pin', 'pin', 0.3, 0.7, 0.3, 0, 3, 'note', { label: 'Note' }],
 };
 export const PALETTE = [
-  ['Blocks', ['box', 'rbox', 'wall', 'floor', 'stairs', 'ramp', 'arch']],
-  ['Shapes', ['cylinder', 'sphere', 'cone', 'torus', 'capsule']],
-  ['Reference', ['person', 'zone']],
+  ['Blocks', ['box', 'rbox', 'wall', 'floor', 'door', 'window', 'stairs', 'ramp', 'arch']],
+  ['Shapes', ['cylinder', 'hex', 'sphere', 'cone', 'pyramid', 'torus', 'capsule']],
+  ['Reference', ['person', 'tree', 'zone', 'pin']],
 ].map(([g, ks]) => [g, ks.map(k => [k, P[k][0]])]);
-export const HINT = 'Click to select · drag to orbit · right-drag or Shift-drag to pan · wheel zooms · G/R/S move/rotate/scale · 1/3/7/5 front/right/top/persp · F fit · X delete';
+export const HINT = 'Click to select (Shift adds) · drag to orbit · right-drag or Shift-drag to pan · wheel zooms · G/R/S move/rotate/scale · 1/3/7/5 front/right/top/persp · F fit · X delete';
+export const TARGETS = ['Blender (Python script)', 'three.js', 'React Three Fiber', 'Godot 4 scene', 'Unity', 'Unreal Engine', 'Roblox Studio', 'Minecraft build', 'Concept art image prompt'];
 
 function make(key, x = 0, y = 0, z = 0, o = {}) {
-  const [label, prim, w, h, d, bevel = 0, segs = 3, style = 'solid'] = P[key];
-  return { id: uid(), prim, label, w, h, d, bevel, segs, style, pos: [x, y, z], rot: [0, 0, 0], note: '', ...o };
+  const [label, prim, w, h, d, bevel = 0, segs = 3, style = 'solid', { y: ey = 0, ...ex } = {}] = P[key];
+  return { id: uid(), prim, label, w, h, d, bevel, segs, sides: 48, style, pos: [x, y || ey, z], rot: [0, 0, 0], note: '', ...ex, ...o };
 }
 
 // Opened files are untrusted: force every field to its expected type.
@@ -41,18 +47,18 @@ export const clean = p => ({
   items: (Array.isArray(p?.items) ? p.items : []).map(it => ({
     id: /^[a-z0-9]{1,16}$/.test(it?.id) ? it.id : uid(), prim: PRIMS[it?.prim] ? it.prim : 'box',
     label: String(it.label ?? ''), w: num(it.w) || 1, h: num(it.h) || 1, d: num(it.d) || 1,
-    bevel: num(it.bevel), segs: Math.min(12, Math.max(1, Math.round(num(it.segs)) || 3)),
-    style: ['solid', 'dark', 'ghost'].includes(it.style) ? it.style : 'solid', pos: vec(it.pos), rot: vec(it.rot), note: String(it.note ?? ''),
+    bevel: num(it.bevel), segs: Math.min(12, Math.max(1, Math.round(num(it.segs)) || 3)), sides: Math.min(64, Math.max(3, Math.round(num(it.sides)) || 48)),
+    style: ['solid', 'dark', 'ghost', 'note'].includes(it.style) ? it.style : 'solid', pos: vec(it.pos), rot: vec(it.rot), note: String(it.note ?? ''), locked: it.locked === true,
   })),
 });
 
 // ---- geometry: every shape is built centred on X/Z with its base at y = 0 ----
-function lathe(R, H, b, s) {
+function lathe(R, H, b, s, sides) {
   const pts = [V2(0, 0)];
   const arc = (cx, cy, a0, a1) => { for (let i = 0; i <= s; i++) { const a = a0 + (a1 - a0) * i / s; pts.push(V2(cx + b * Math.cos(a), cy + b * Math.sin(a))); } };
   if (b > 0.001) { arc(R - b, b, -Math.PI / 2, 0); arc(R - b, H - b, 0, Math.PI / 2); } else pts.push(V2(R, 0), V2(R, H));
   pts.push(V2(0, H));
-  return new THREE.LatheGeometry(pts, 48);
+  return new THREE.LatheGeometry(pts, sides);
 }
 const extrude = (shape, d, b, s) => new THREE.ExtrudeGeometry(shape, {
   depth: Math.max(0.001, d - 2 * b), curveSegments: 24, bevelEnabled: b > 0.001, bevelThickness: b, bevelSize: b, bevelOffset: -b, bevelSegments: s,
@@ -60,12 +66,22 @@ const extrude = (shape, d, b, s) => new THREE.ExtrudeGeometry(shape, {
 const rbox = (w, h, d, b, s) => b > 0.001 ? new RoundedBoxGeometry(w, h, d, s, b) : new THREE.BoxGeometry(w, h, d);
 
 function geom(it) {
-  const { w, h, d } = it, s = it.segs || 3;
+  const { w, h, d } = it, s = it.segs || 3, sides = it.sides || 48;
   let b = Math.max(0, Math.min(it.bevel || 0, w / 2, h / 2, d / 2) * 0.999), g, fitBox = false;
   switch (it.prim) {
-    case 'cylinder': g = lathe(w / 2, h, b, s).scale(1, 1, d / w); break;
+    // few-sided prisms and pyramids are turned so a flat face points at the front view
+    case 'cylinder': g = lathe(w / 2, h, b, s, sides).rotateY(sides < 24 ? Math.PI / sides : 0).scale(1, 1, d / w); break;
     case 'sphere': g = new THREE.SphereGeometry(0.5, 48, 24).scale(w, h, d); break;
-    case 'cone': g = new THREE.ConeGeometry(0.5, 1, 48).scale(w, h, d); break;
+    case 'cone': g = new THREE.ConeGeometry(0.5, 1, sides).rotateY(sides < 24 ? Math.PI / sides : 0).scale(w, h, d); break;
+    case 'tree':
+      g = mergeGeometries([new THREE.CylinderGeometry(0.07, 0.1, 1, 12).translate(0, 0.5, 0), new THREE.ConeGeometry(0.5, 1.5, 24).translate(0, 1.6, 0),
+        new THREE.ConeGeometry(0.38, 1.1, 24).translate(0, 2.3, 0)].map(x => x.toNonIndexed()));
+      fitBox = true;
+      break;
+    case 'pin':
+      g = mergeGeometries([new THREE.ConeGeometry(0.5, 1.4, 24).rotateX(Math.PI).translate(0, 0.7, 0), new THREE.SphereGeometry(0.5, 24, 16).translate(0, 1.6, 0)].map(x => x.toNonIndexed()));
+      fitBox = true;
+      break;
     case 'torus': g = new THREE.TorusGeometry(0.4, 0.1, 24, 64).rotateX(Math.PI / 2).scale(w, h / 0.2, d); break;
     case 'capsule': g = new THREE.CapsuleGeometry(0.5, 1, 8, 24).scale(w, h / 2, d); break;
     case 'ramp': b = Math.min(b, w * 0.12, h * 0.12); g = extrude(new THREE.Shape([V2(0, 0), V2(w, 0), V2(w, h)]), d, b, s); break;
@@ -103,7 +119,7 @@ function geom(it) {
 
 const material = style => style === 'ghost'
   ? new THREE.MeshStandardMaterial({ color: 0xcfdcff, transparent: true, opacity: 0.25, depthWrite: false, side: THREE.DoubleSide })
-  : new THREE.MeshStandardMaterial({ color: style === 'dark' ? 0x4a4f57 : 0xffffff, roughness: 0.9, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+  : new THREE.MeshStandardMaterial({ color: { dark: 0x4a4f57, note: 0xe11d48 }[style] ?? 0xffffff, roughness: 0.9, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
 
 // ---- scene ----
 let api, host, renderer, labelR, scene, root, persp, ortho, cam, orbit, tc;
@@ -154,8 +170,9 @@ export function init(a, el) {
     if (!down || down.gizmo || e.button !== 0 || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) return;
     const r = renderer.domElement.getBoundingClientRect(), ray = new THREE.Raycaster();
     ray.setFromCamera(V2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1), cam);
-    const hit = ray.intersectObjects([...objs.values()].map(g => g.children[0]), false)[0];
-    api.select(hit ? hit.object.userData.id : null);
+    const hit = ray.intersectObjects([...objs.values()].map(g => g.children[0]).filter(m => !m.userData.locked), false)[0];
+    if (hit) api.select(hit.object.userData.id, e.shiftKey);
+    else if (!e.shiftKey) api.select(null);
   });
 
   new ResizeObserver(resize).observe(host);
@@ -216,10 +233,10 @@ function setView(v) {
 }
 
 function build(it, n) {
-  const g = new THREE.Group(), geo = geom(it), sel = it.id === api.sel;
+  const g = new THREE.Group(), geo = geom(it), sel = api.isSel(it.id);
   const mesh = new THREE.Mesh(geo, material(it.style));
-  mesh.userData.id = it.id;
-  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 25), new THREE.LineBasicMaterial({ color: sel ? ACCENT : it.style === 'ghost' ? 0x7d8db0 : INK }));
+  mesh.userData = { id: it.id, locked: it.locked };
+  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 25), new THREE.LineBasicMaterial({ color: sel ? ACCENT : { ghost: 0x7d8db0, note: 0x9f1239 }[it.style] ?? INK }));
   const el = document.createElement('div');
   el.className = 'lbl3';
   el.innerHTML = `<b>${n}</b>${esc(it.label)}`;
@@ -260,9 +277,25 @@ function bake() {
 // ---- hooks used by app.js ----
 export function add(key) {
   const it = make(key), q = v => Math.round(v * 4) / 4;
-  it.pos = [q(orbit.target.x), 0, q(orbit.target.z)];
+  it.pos = [q(orbit.target.x), it.pos[1], q(orbit.target.z)];
   return it;
 }
+
+const overlapXZ = (a, b) => a.min.x < b.max.x && a.max.x > b.min.x && a.min.z < b.max.z && a.max.z > b.min.z;
+const worldBox = it => new THREE.Box3().setFromObject(objs.get(it.id).children[0]);
+// Lower an object until it rests on the highest thing underneath it (or the ground).
+function dropDown(it) {
+  root.updateMatrixWorld(true);
+  const me = worldBox(it);
+  let top = 0;
+  for (const o of api.part().items) {
+    if (o === it) continue;
+    const b = worldBox(o);
+    if (overlapXZ(b, me) && b.max.y <= me.min.y + 0.01) top = Math.max(top, b.max.y);
+  }
+  it.pos[1] = r3(it.pos[1] - (me.min.y - top));
+}
+export const actions = () => [['Drop down', dropDown]];
 export const offset = it => { it.pos = [it.pos[0] + 0.5, it.pos[1], it.pos[2] + 0.5]; };
 export const fit = () => setView(view);
 
@@ -294,7 +327,7 @@ export function fields(it) {
   const f = [
     { key: 'label', label: 'Label (what this is)', type: 'text' },
     { key: 'prim', label: 'Shape', type: 'select', options: Object.entries(PRIMS) },
-    { key: 'style', label: 'Look', type: 'select', options: [['solid', 'Solid (white)'], ['dark', 'Dark (screens, metal)'], ['ghost', 'Ghost (glass, zone, volume)']] },
+    { key: 'style', label: 'Look', type: 'select', options: [['solid', 'Solid (white)'], ['dark', 'Dark (screens, metal)'], ['ghost', 'Ghost (glass, zone, volume)'], ['note', 'Red (note or marker)']] },
     { key: 'note', label: 'Note for Claude (material, purpose, behaviour…)', type: 'textarea' },
     { key: 'w', label: 'Width X (m)', type: 'number', step: 0.05, third: true },
     { key: 'h', label: 'Height Y (m)', type: 'number', step: 0.05, third: true },
@@ -306,6 +339,10 @@ export function fields(it) {
     { key: 'rot.1', label: 'Turn Y°', type: 'number', step: 15, third: true },
     { key: 'rot.2', label: 'Roll Z°', type: 'number', step: 15, third: true },
   ];
+  if (SIDED.has(it.prim)) f.push(
+    { key: 'sides', label: 'Sides', type: 'range', min: 3, max: 64 },
+    { label: 'Side presets', type: 'presets', options: [['Round', o => { o.sides = 48; }], ['Octagon', o => { o.sides = 8; }], ['Hexagon', o => { o.sides = 6; }], ['Square', o => { o.sides = 4; }], ['Triangle', o => { o.sides = 3; }]] },
+  );
   if (BEVEL.has(it.prim)) f.push(
     { key: 'bevel', label: 'Bevel radius (m)', type: 'range', min: 0, max: r3(minDim(it) / 2), step: 0.005 },
     { key: 'segs', label: 'Bevel segments (1 = chamfer)', type: 'range', min: 1, max: 12 },
@@ -336,8 +373,7 @@ export async function snapshot() {
   const saved = { view, pos: cam.position.clone(), up: cam.up.clone(), zoom: cam.zoom, target: orbit.target.clone(), half: orthoHalf };
   const items = api.part().items, TW = 960, TH = 720, pr = renderer.getPixelRatio();
   tc.visible = false;
-  objs.get(api.sel)?.children[1].material.color.set(INK);
-  for (const g of objs.values()) g.children[2].visible = false;
+  for (const [id, g] of objs) { g.children[2].visible = false; if (api.isSel(id)) g.children[1].material.color.set(INK); }
   renderer.setPixelRatio(1);
   renderer.setSize(TW, TH, false);
   const cv = Object.assign(document.createElement('canvas'), { width: TW * 2, height: TH * 2 }), ctx = cv.getContext('2d');
@@ -373,16 +409,19 @@ export async function snapshot() {
 export function describe() {
   const items = api.part().items, n = it => items.indexOf(it) + 1, f = v => +(+v).toFixed(2);
   root.updateMatrixWorld(true);
-  const boxes = new Map(items.map(it => [it, new THREE.Box3().setFromObject(objs.get(it.id).children[0])]));
-  const overlapXZ = (a, b) => a.min.x < b.max.x && a.max.x > b.min.x && a.min.z < b.max.z && a.max.z > b.min.z;
+  const boxes = new Map(items.map(it => [it, worldBox(it)]));
+  const shape = it => it.prim === 'box' && it.bevel > 0 ? 'rounded box'
+    : SIDED.has(it.prim) && it.sides < 24 ? `${POLY[it.sides] || it.sides + '-sided'} ${it.prim === 'cone' ? 'pyramid' : 'prism'}`
+    : it.prim === 'pin' ? 'note pin: a designer annotation, not part of the scene' : PRIMS[it.prim].replace(/ \(.*\)/, '').toLowerCase();
   const lines = items.map(it => {
     const b = boxes.get(it);
-    let s = `${n(it)}. **${it.label}** (${it.prim === 'box' && it.bevel > 0 ? 'rounded box' : PRIMS[it.prim].replace(/ \(.*\)/, '').toLowerCase()}): ${f(it.w)} × ${f(it.h)} × ${f(it.d)} m (W × H × D), base centre at x ${f(it.pos[0])}, y ${f(it.pos[1])}, z ${f(it.pos[2])}`;
+    let s = `${n(it)}. **${it.label}** (${shape(it)}): ${f(it.w)} × ${f(it.h)} × ${f(it.d)} m (W × H × D), base centre at x ${f(it.pos[0])}, y ${f(it.pos[1])}, z ${f(it.pos[2])}`;
     const rot = it.rot.map((r, i) => r ? `${'XYZ'[i]} ${f(r)}°` : '').filter(Boolean);
     if (rot.length) s += `, rotated ${rot.join(', ')}`;
     if (BEVEL.has(it.prim) && it.bevel > 0) s += `, ${it.segs === 1 ? 'chamfered' : 'rounded'} edges ${f(it.bevel)} m`;
     if (it.style === 'ghost') s += ', ghost (see-through: glass, a zone or a volume)';
     if (it.style === 'dark') s += ', dark material';
+    if (it.style === 'note' && it.prim !== 'pin') s += ', red (a designer marker, not the real colour)';
     const on = b.min.y > 0.01 && items.find(o => o !== it && Math.abs(boxes.get(o).max.y - b.min.y) < 0.03 && overlapXZ(boxes.get(o), b));
     if (on) s += `, sits on #${n(on)} ${on.label}`;
     if (it.note) s += `\n   - Note: ${it.note}`;
@@ -398,7 +437,7 @@ export function describe() {
     '',
     '## How to read the image',
     '- Four views: perspective (top left), top (top right), front (bottom left), right side (bottom right).',
-    '- White shapes with black edges are solid objects, grey shapes are dark materials, pale see-through shapes are glass, zones or volumes.',
+    '- White shapes with black edges are solid objects, grey shapes are dark materials, pale see-through shapes are glass, zones or volumes, red pins are notes.',
     '- Floor grid: 1 m squares with fine lines every 0.25 m. The black numbered tags match the list below.',
     '',
     '## Objects',
@@ -434,6 +473,7 @@ export const TEMPLATES = [
     M('box', -1.8, 1.3, 2.52, { label: 'Window left', w: 1.2, h: 1, d: 0.06, style: 'ghost' }),
     M('box', 1.8, 1.3, 2.52, { label: 'Window right', w: 1.2, h: 1, d: 0.06, style: 'ghost' }),
     M('arch', 0, 0.05, 5, { label: 'Garden arch', w: 2, h: 2.5, d: 0.4 }),
+    M('tree', -4, 0.05, 3, { label: 'Tree left' }), M('tree', 4.2, 0.05, -2.5, { label: 'Tree right', w: 2, h: 4.5, d: 2 }),
     M('person', 2.5, 0.05, 4, { label: 'Person (for scale)' }),
   ] }) },
   { name: 'Desk setup', build: () => ({ items: [
@@ -463,6 +503,8 @@ export const TEMPLATES = [
     M('arch', 8.8, 1.5, 0, { label: 'Exit gate', w: 2, h: 2.6, d: 0.4, rot: [0, 90, 0] }),
     M('cylinder', 0, 0.5, 1.5, { label: 'Pillar', w: 0.5, h: 2.5, d: 0.5, bevel: 0.04 }),
     M('person', 0, 0.5, 0, { label: 'Player (1.8 m)' }),
+    M('pin', 7, 3.6, 0, { label: 'Checkpoint', note: 'Save point when the player reaches the upper platform' }),
+    M('pyramid', 8.2, 1.5, 1.5, { label: 'Spike trap', w: 0.6, h: 0.5, d: 0.6, style: 'dark', note: 'Damages the player on touch' }),
   ] }) },
   { name: 'Blank scene', build: () => ({ items: [] }) },
 ];

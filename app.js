@@ -3,28 +3,39 @@ import * as d3 from './d3.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const uid = () => Math.random().toString(36).slice(2, 9);
 const KEY = 'gridpaper-doc-v1';
 const mods = { '2d': d2, '3d': d3 };
 
-const blank = () => ({ title: 'Untitled design', notes: '', mode: '2d', d2: d2.TEMPLATES[0].build(), d3: d3.TEMPLATES[0].build() });
+const blank = () => ({ title: 'Untitled design', notes: '', mode: '2d', target2d: '', target3d: '', d2: d2.TEMPLATES[0].build(), d3: d3.TEMPLATES[0].build() });
 // Saved and opened designs are untrusted input (files get shared), so every field is re-typed here.
 function clean(d) {
   if (!d?.d2 || !d?.d3) throw new Error('not a Gridpaper design');
-  return { title: String(d.title ?? 'Untitled design'), notes: String(d.notes ?? ''), mode: d.mode === '3d' ? '3d' : '2d', d2: d2.clean(d.d2), d3: d3.clean(d.d3) };
+  return {
+    title: String(d.title ?? 'Untitled design'), notes: String(d.notes ?? ''), mode: d.mode === '3d' ? '3d' : '2d',
+    target2d: String(d.target2d ?? ''), target3d: String(d.target3d ?? ''), d2: d2.clean(d.d2), d3: d3.clean(d.d3),
+  };
 }
 function load() {
   try { return clean(JSON.parse(localStorage.getItem(KEY))); } catch { return blank(); }
 }
 function persist() { try { localStorage.setItem(KEY, JSON.stringify(doc)); } catch {} }
 
-let doc = load(), sel = null, past = [], future = [], last = JSON.stringify(doc);
+let doc = load(), sel = [], past = [], future = [], last = JSON.stringify(doc), clip = null;
 const mod = () => mods[doc.mode];
 const part = () => doc[doc.mode === '2d' ? 'd2' : 'd3'];
+const picked = () => part().items.filter(i => sel.includes(i.id));
 
 const api = {
-  get sel() { return sel; },
+  get sel() { return sel[sel.length - 1] ?? null; },   // the primary selection: shown in the panel, gets the handles
+  isSel: id => sel.includes(id),
   part,
-  select(id) { sel = id; mod().render(); renderProps(); },
+  select(id, add = false) {
+    if (add && id) sel = sel.includes(id) ? sel.filter(x => x !== id) : [...sel, id];
+    else sel = id ? [id] : [];
+    mod().render(); renderProps();
+  },
+  selectMany(ids, add = false) { sel = add ? [...new Set([...sel, ...ids])] : ids; mod().render(); renderProps(); },
   commit,
   toolbar: () => { $('#toolbar').innerHTML = mod().toolbar(); },
 };
@@ -39,29 +50,46 @@ function restore(s) { doc = clean(JSON.parse(s)); last = s; persist(); refresh()
 function undo() { if (past.length) { future.push(last); restore(past.pop()); } }
 function redo() { if (future.length) { past.push(last); restore(future.pop()); } }
 
-// ---- properties panel ----
+// ---- properties panel and element list ----
 const getP = (o, k) => k.split('.').reduce((a, p) => a?.[p], o);
 const setP = (o, k, v) => { const ps = k.split('.'), l = ps.pop(); ps.reduce((a, p) => a[p], o)[l] = v; };
 
+function renderLayers() {
+  const L = $('#layers');
+  if (!L) return;
+  L.innerHTML = part().items.map((it, i) => `<button data-sel="${it.id}" class="${sel.includes(it.id) ? 'on' : ''}">${i + 1} ${esc(it.label) || '—'}${it.locked ? ' (locked)' : ''}</button>`).join('')
+    || '<p class="hint" style="margin:0">Nothing yet. Add something above.</p>';
+}
+
 function renderProps() {
-  const el = $('#props'), list = part().items, it = list.find(i => i.id === sel);
-  if (sel && !it) sel = null;
+  const el = $('#props'), list = part().items;
+  sel = sel.filter(id => list.some(i => i.id === id));
+  const it = list.find(i => i.id === api.sel);
+  renderLayers();
   const fields = it ? mod().fields(it) : [
     { key: 'title', label: 'Design title', type: 'text' },
-    { key: 'notes', label: 'Overall notes for Claude (goal, style, tech stack…)', type: 'textarea' },
+    { key: 'notes', label: 'Overall notes for Claude (goal, style, audience…)', type: 'textarea' },
+    { key: 'target' + doc.mode, label: 'Build it with (added to the description)', type: 'select', options: [['', 'Not specified'], ...mod().TARGETS.map(t => [t, t])] },
     ...mod().docFields(),
   ];
-  el.innerHTML = it ? `<h3>#${list.indexOf(it) + 1} ${esc(it.label)}</h3>`
+  el.innerHTML = it ? `<h3>#${list.indexOf(it) + 1} ${esc(it.label)}${sel.length > 1 ? ` <small class="hint">+ ${sel.length - 1} more selected</small>` : ''}</h3>`
     : `<h3>Design</h3><p class="hint" style="margin:0 0 10px">Nothing selected. Click an element to label it and add notes.</p>`;
   const grid = document.createElement('div');
   grid.className = 'fields';
   for (const f of fields) grid.append(fieldEl(f, f.obj || it || doc));
   el.append(grid);
   if (!it) return;
+  const acts = [['Duplicate', duplicate], ['Bring forward', () => reorder(1)], ['Send back', () => reorder(-1)],
+    [it.locked ? 'Unlock' : 'Lock', lock], ...(mod().actions?.(it) || []), ['Delete', remove]];
   const row = document.createElement('div');
   row.className = 'actions';
-  row.innerHTML = '<button data-a="dup">Duplicate</button><button data-a="up">Bring forward</button><button data-a="down">Send back</button><button data-a="del" class="danger">Delete</button>';
-  row.onclick = e => ({ dup: duplicate, del: remove, up: () => reorder(1), down: () => reorder(-1) })[e.target.dataset.a]?.();
+  for (const [name, fn] of acts) {
+    const b = document.createElement('button');
+    b.textContent = name;
+    if (name === 'Delete') b.className = 'danger';
+    b.onclick = () => { fn(it); mod().render(); commit(); };
+    row.append(b);
+  }
   el.append(row);
 }
 
@@ -107,35 +135,44 @@ function fieldEl(f, o) {
   return w;
 }
 
-// ---- item actions ----
-function duplicate() {
-  const list = part().items, it = list.find(i => i.id === sel);
-  if (!it) return;
-  const c = structuredClone(it);
-  c.id = Math.random().toString(36).slice(2, 9);
-  mod().offset(c);
-  list.push(c);
-  api.select(c.id);
+// ---- item actions (apply to every selected item) ----
+function insert(items) {
+  const copies = items.map(it => { const c = structuredClone(it); c.id = uid(); mod().offset(c); return c; });
+  part().items.push(...copies);
+  api.selectMany(copies.map(c => c.id));
   commit();
 }
+const duplicate = () => insert(picked());
 function remove() {
-  const p = part();
-  if (!sel) return;
-  p.items = p.items.filter(i => i.id !== sel);
+  if (!sel.length) return;
+  part().items = part().items.filter(i => !sel.includes(i.id));
   api.select(null);
   commit();
 }
 function reorder(d) {
-  const list = part().items, i = list.findIndex(x => x.id === sel), j = i + d;
+  const list = part().items, i = list.findIndex(x => x.id === api.sel), j = i + d;
   if (i < 0 || j < 0 || j >= list.length) return;
   [list[i], list[j]] = [list[j], list[i]];
-  mod().render();
-  commit();
+}
+function lock(it) { const v = !it.locked; picked().forEach(i => { i.locked = v; }); }
+function copy() {
+  if (!sel.length) return false;
+  clip = { mode: doc.mode, items: structuredClone(picked()) };
+  toast(`Copied ${clip.items.length} item${clip.items.length > 1 ? 's' : ''}. Ctrl+V pastes.`);
+  return true;
+}
+function paste() {
+  if (!clip) return;
+  if (clip.mode !== doc.mode) return toast(`Those items are ${clip.mode.toUpperCase()}; switch modes to paste them.`);
+  insert(clip.items);
+  clip.items.forEach(mod().offset);   // the next paste lands a step further along
 }
 
 // ---- export ----
 function describe() {
+  const target = doc['target' + doc.mode];
   return `# ${doc.title}\n\n` + (doc.notes ? doc.notes.trim().split('\n').map(l => `> ${l}`).join('\n') + '\n\n' : '')
+    + (target ? `**Build it with:** ${target}\n\n` : '')
     + mod().describe()
     + '\n\n---\n_Made with Gridpaper. The numbered tags in the image match the numbers above._\n';
 }
@@ -174,6 +211,12 @@ $('#export').onclick = async () => {
   download(new Blob([describe()], { type: 'text/markdown' }), slug() + '.md');
   toast(`Saved ${slug()}.png and ${slug()}.md. Give both to Claude.`);
 };
+$('#new').onclick = () => {
+  if (part().items.length && !confirm(`Clear the ${doc.mode.toUpperCase()} canvas and start blank? (Undo brings it back.)`)) return;
+  part().items = [];
+  sel = []; refresh(); mod().fit(); commit();
+  toast(`Blank ${doc.mode.toUpperCase()} canvas. The other mode keeps its design.`);
+};
 $('#save').onclick = save;
 $('#open').onclick = () => $('#file').click();
 $('#file').onchange = async e => {
@@ -181,7 +224,8 @@ $('#file').onchange = async e => {
   e.target.value = '';
   if (!f) return;
   try {
-    doc = clean(JSON.parse(await f.text())); sel = null; refresh(); mod().fit(); commit();
+    doc = clean(JSON.parse(await f.text())); sel = [];
+    refresh(); mod().fit(); commit();
     toast('Opened ' + f.name);
   } catch { toast('That file is not a Gridpaper design.'); }
 };
@@ -194,7 +238,7 @@ function refresh() {
   document.body.dataset.mode = doc.mode;
   document.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('on', b.dataset.mode === doc.mode));
   $('#palette').innerHTML = mod().PALETTE.map(([g, keys]) => `<h4>${g}</h4><div class="pal">${keys.map(([k, t]) => `<button data-add="${k}">${t}</button>`).join('')}</div>`).join('')
-    + `<p class="hint">${mod().HINT}</p>`;
+    + `<h4>Elements <small>(click, Shift-click)</small></h4><div id="layers"></div><p class="hint">${mod().HINT}</p>`;
   $('#template').innerHTML = '<option value="">Templates…</option>' + mod().TEMPLATES.map((t, i) => `<option value="${i}">${t.name}</option>`).join('');
   api.toolbar();
   mod().render();
@@ -202,9 +246,11 @@ function refresh() {
 }
 
 document.querySelectorAll('header [data-mode]').forEach(b => b.onclick = () => {
-  doc.mode = b.dataset.mode; sel = null; refresh(); last = JSON.stringify(doc); persist();
+  doc.mode = b.dataset.mode; sel = []; refresh(); last = JSON.stringify(doc); persist();
 });
 $('#palette').onclick = e => {
+  const s = e.target.closest('[data-sel]')?.dataset.sel;
+  if (s) return api.select(s, e.shiftKey);
   const k = e.target.closest('[data-add]')?.dataset.add;
   if (!k) return;
   const it = mod().add(k);
@@ -217,7 +263,7 @@ $('#template').onchange = e => {
   e.target.value = '';
   if (!t || (part().items.length && !confirm(`Replace the current ${doc.mode.toUpperCase()} design with "${t.name}"? (Undo can bring it back.)`))) return;
   doc[doc.mode === '2d' ? 'd2' : 'd3'] = t.build();
-  sel = null; refresh(); mod().fit(); commit();
+  sel = []; refresh(); mod().fit(); commit();
 };
 $('#toolbar').onclick = e => {
   const a = e.target.closest('[data-act]')?.dataset.act;
@@ -230,6 +276,10 @@ addEventListener('keydown', e => {
   if (ctrl && k === 'z') e.shiftKey ? redo() : undo();
   else if (ctrl && k === 'y') redo();
   else if (ctrl && k === 's') save();
+  else if (ctrl && k === 'c') { if (!copy()) return; }
+  else if (ctrl && k === 'x') { if (copy()) remove(); }
+  else if (ctrl && k === 'v') paste();
+  else if (ctrl && k === 'a') api.selectMany(part().items.filter(i => !i.locked).map(i => i.id));
   else if ((ctrl || e.shiftKey) && k === 'd') duplicate();
   else if (k === 'delete' || k === 'backspace' || (k === 'x' && !ctrl && doc.mode === '3d')) remove();
   else if (k === 'escape') api.select(null);
