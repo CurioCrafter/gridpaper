@@ -51,6 +51,7 @@ Then ask Claude something like *"Build this page in React and Tailwind"* or *"Ma
 - Artboards for desktop, laptop, tablet, mobile and long pages, on a 10 px grid with snapping.
 - 34 wireframe elements that read clearly: header, hero, section, sidebar, card, modal, footer, divider, heading, paragraph, image, video, carousel, icon, badge, list, table, chart, map, code block, progress bar, button, link, text input, text area, dropdown, checkbox, radio button, toggle, slider, nav menu, tabs, notes and arrows.
 - Red **notes** and **arrows** for behaviour and flows ("click → goes to dashboard").
+- **Drawing tools**: pen, marker, highlighter, straight lines (Shift locks to 15° steps), Bézier curves with handles, and an eraser, in seven ink colours and three thicknesses. Label a mark and Claude reads it like a pen mark on a printout.
 - **Smart guides**: pink lines snap edges and centres to other elements and the artboard.
 - Box-select by dragging on empty space, Shift-click to add, move many things at once.
 - Corner radius slider and presets (sharp, soft, round, pill), plus align-on-artboard buttons (left, centre, right, full width, top, middle).

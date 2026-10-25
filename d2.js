@@ -40,7 +40,15 @@ const KINDS = {
   tabs: ['Tabs', 480, 48, 'tabs', 0],
   note: ['Note', 260, 90, 'note', 0],
   arrow: ['Arrow', 200, 0, 'arrow', 0],
+  stroke: ['Drawing', 0, 0, 'stroke', 0],
 };
+// Drawing tools: [name, key, stroke width, opacity, stroke mode]
+const TOOLS = {
+  select: ['Select', 'V'], pen: ['Pen', 'P', 2.5, 1, 'free'], marker: ['Marker', 'M', 7, 1, 'free'], highlight: ['Highlighter', 'H', 22, 0.35, 'free'],
+  line: ['Straight line', 'L', 2.5, 1, 'line'], curve: ['Curve', 'C', 2.5, 1, 'curve'], eraser: ['Eraser', 'E'],
+};
+const INKS = { '#111111': 'Black', '#e11d48': 'Red', '#2563eb': 'Blue', '#16a34a': 'Green', '#ea580c': 'Orange', '#9333ea': 'Purple', '#facc15': 'Yellow' };
+const STROKE_LABELS = { pen: 'Pen mark', marker: 'Marker mark', highlight: 'Highlight', line: 'Line', curve: 'Curve' };
 const ITEMS_LOOKS = new Set(['list', 'nav', 'tabs']), VALUE_LOOKS = new Set(['slider', 'progress']);
 const BOARDS = [['Desktop', 1440, 900], ['Laptop', 1280, 800], ['Tablet', 768, 1024], ['Mobile', 390, 844], ['Long page', 1440, 1600]];
 
@@ -59,13 +67,38 @@ export function clean(p) {
   const b = p?.board || {};
   return {
     board: { name: String(b.name ?? 'Custom'), w: num(b.w) || 1440, h: num(b.h) || 900 },
-    items: (Array.isArray(p?.items) ? p.items : []).map(it => ({
-      id: /^[a-z0-9]{1,16}$/.test(it?.id) ? it.id : uid(), kind: KINDS[it?.kind] ? it.kind : 'section',
-      x: num(it.x), y: num(it.y), w: num(it.w), h: num(it.h), r: num(it.r),
-      label: String(it.label ?? ''), text: String(it.text ?? ''), note: String(it.note ?? ''), locked: it.locked === true,
-    })),
+    items: (Array.isArray(p?.items) ? p.items : []).map(it => {
+      const c = {
+        id: /^[a-z0-9]{1,16}$/.test(it?.id) ? it.id : uid(), kind: KINDS[it?.kind] ? it.kind : 'section',
+        x: num(it.x), y: num(it.y), w: num(it.w), h: num(it.h), r: num(it.r),
+        label: String(it.label ?? ''), text: String(it.text ?? ''), note: String(it.note ?? ''), locked: it.locked === true,
+      };
+      if (c.kind === 'stroke') Object.assign(c, {
+        tool: STROKE_LABELS[it.tool] ? it.tool : 'pen', mode: ['free', 'line', 'curve'].includes(it.mode) ? it.mode : 'free',
+        pts: (Array.isArray(it.pts) ? it.pts : []).slice(0, 4000).map(q => [num(q?.[0]), num(q?.[1])]),
+        color: /^#[0-9a-f]{6}$/i.test(it.color) ? it.color : '#111111', sw: Math.min(80, Math.max(0.5, num(it.sw) || 2.5)), op: Math.min(1, Math.max(0.05, num(it.op) || 1)),
+      });
+      return c;
+    }),
   };
 }
+
+// ---- strokes: hand-drawn marks, straight lines and Bézier curves ----
+function fitStroke(it) {
+  const xs = it.pts.map(p => p[0]), ys = it.pts.map(p => p[1]);
+  it.x = Math.min(...xs); it.y = Math.min(...ys);
+  it.w = Math.max(1, Math.max(...xs) - it.x); it.h = Math.max(1, Math.max(...ys) - it.y);
+}
+function strokePath(it) {
+  const p = it.pts;
+  if (!p.length) return '';
+  if (it.mode === 'curve' && p.length === 4) return `M${p[0]}C${p[1]} ${p[2]} ${p[3]}`;
+  if (p.length < 3) return `M${p[0]}L${p[p.length - 1]}`;
+  let d = `M${p[0]}`;   // freehand: smooth quadratic curves through the midpoints
+  for (let i = 1; i < p.length - 1; i++) d += `Q${p[i]} ${(p[i][0] + p[i + 1][0]) / 2},${(p[i][1] + p[i + 1][1]) / 2}`;
+  return d + `L${p[p.length - 1]}`;
+}
+const shift = (it, dx, dy) => { it.x += dx; it.y += dy; if (it.pts) it.pts = it.pts.map(([a, b]) => [a + dx, b + dy]); };
 
 const make = (kind, x, y, w, h, label, text = '', extra = {}) =>
   ({ id: uid(), kind, x, y, w, h, r: KINDS[kind][4], label: label || KINDS[kind][0], text, note: '', ...extra });
@@ -100,7 +133,7 @@ const DEFS = `<defs>
 </defs>`;
 
 let api, svg, layer, vb = { x: 0, y: 0, w: 1600, h: 1000 }, showLabels = true, snapOn = true, fitted = false;
-let drag = null, space = false, noSel = false, guides = [];
+let drag = null, space = false, noSel = false, guides = [], tool = 'select', ink = '#111111', inkSize = 1;
 const cur = () => api.part().items.find(i => i.id === api.sel);
 const scale = () => Math.max(vb.w / svg.clientWidth, vb.h / svg.clientHeight) || 1;
 const pt = e => new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse());
@@ -117,6 +150,13 @@ function zoom(f, p = { x: vb.x + vb.w / 2, y: vb.y + vb.h / 2 }) {
   vb = { x: p.x - (p.x - vb.x) * f, y: p.y - (p.y - vb.y) * f, w, h: vb.h * f };
   applyVB();
   render();
+}
+
+// Eraser: removes the drawing under the pointer (only drawings, so a slip can't delete the layout).
+function erase(e) {
+  const g = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-id]'), p = api.part();
+  const it = g && p.items.find(i => i.id === g.dataset.id);
+  if (it?.kind === 'stroke' && !it.locked) { p.items = p.items.filter(i => i !== it); render(); }
 }
 
 // Move the dragged box onto the nearest edge or centre of another element (or the artboard).
@@ -154,7 +194,15 @@ export function init(a, el) {
       e.preventDefault();
     } else if (hd) {
       const it = cur();
-      drag = { h: hd.dataset.h, it, p0: p, o: { ...it } };
+      drag = { h: hd.dataset.h, it, p0: p, o: { ...it }, opts: it.pts?.map(q => [...q]) };
+    } else if (tool === 'eraser') {
+      drag = { erase: true, p0: p };
+      erase(e);
+    } else if (tool !== 'select') {
+      const [, , sw, op, mode] = TOOLS[tool], q = mode === 'free' || !snapOn || e.altKey ? [p.x, p.y].map(Math.round) : [p.x, p.y].map(v => Math.round(v / GRID) * GRID);
+      const it = make('stroke', q[0], q[1], 1, 1, STROKE_LABELS[tool], '', { tool, mode, pts: mode === 'free' ? [q] : [q, [...q]], color: ink, sw: sw * inkSize, op });
+      api.part().items.push(it);
+      drag = { draw: it, q0: q, p0: p };
     } else if (g) {
       const id = g.dataset.id;
       let clickId = null;
@@ -162,7 +210,7 @@ export function init(a, el) {
       else if (!api.isSel(id)) api.select(id);
       else clickId = id;   // already part of a multi-selection: drag them all, or a plain click picks just this one
       const list = api.part().items.filter(i => api.isSel(i.id) && !i.locked);
-      drag = { move: true, list: list.map(i => ({ i, x: i.x, y: i.y })), b: union(list), ids: new Set(list.map(i => i.id)), p0: p, clickId };
+      drag = { move: true, list: list.map(i => ({ i, x: i.x, y: i.y, pts: i.pts?.map(q => [...q]) })), b: union(list), ids: new Set(list.map(i => i.id)), p0: p, clickId };
     } else drag = { mq: true, p0: p, add: e.shiftKey };
     svg.setPointerCapture(e.pointerId);
   });
@@ -178,13 +226,33 @@ export function init(a, el) {
     const p = pt(e), dx = p.x - drag.p0.x, dy = p.y - drag.p0.y;
     const sn = v => snapOn && !e.altKey ? Math.round(v / GRID) * GRID : Math.round(v);
     if (drag.mq) { drag.p1 = p; return render(); }
+    if (drag.erase) return erase(e);
+    if (drag.draw) {
+      const it = drag.draw, q0 = drag.q0;
+      if (it.mode === 'free') {
+        const l = it.pts[it.pts.length - 1];
+        if (Math.hypot(p.x - l[0], p.y - l[1]) > 1.5 * scale()) it.pts.push([Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10]);
+      } else {
+        let x = p.x, y = p.y;
+        if (e.shiftKey) {   // Shift locks the line to 15° steps (flat, upright, 45°…)
+          const step = Math.PI / 12, a = Math.round(Math.atan2(y - q0[1], x - q0[0]) / step) * step, len = Math.hypot(x - q0[0], y - q0[1]);
+          x = q0[0] + Math.cos(a) * len; y = q0[1] + Math.sin(a) * len;
+        } else { x = sn(x); y = sn(y); }
+        const dx = x - q0[0], dy = y - q0[1], k = 0.25;   // a new curve starts with a gentle bend; drag its handles to shape it
+        it.pts = (it.mode === 'line' ? [q0, [x, y]] : [q0, [q0[0] + dx / 3 - dy * k, q0[1] + dy / 3 + dx * k], [q0[0] + dx * 2 / 3 - dy * k, q0[1] + dy * 2 / 3 + dx * k], [x, y]])
+          .map(([a, b]) => [Math.round(a), Math.round(b)]);
+      }
+      fitStroke(it);
+      return render();
+    }
     if (drag.move) {
       if (!drag.moved && Math.hypot(dx, dy) < 2 * scale()) return;
       const [mx, my] = smartSnap(drag.b, dx, dy, drag.ids, sn, e);
-      for (const o of drag.list) { o.i.x = o.x + mx; o.i.y = o.y + my; }
+      for (const o of drag.list) { o.i.x = o.x + mx; o.i.y = o.y + my; if (o.pts) o.i.pts = o.pts.map(([a, b]) => [a + mx, b + my]); }
     } else {
       const { it, o, h } = drag;
-      if (h === 'a') { it.x = sn(o.x + dx); it.y = sn(o.y + dy); it.w = o.x + o.w - it.x; it.h = o.y + o.h - it.y; }
+      if (h[0] === 'p') { const i = +h.slice(1); it.pts[i] = [sn(drag.opts[i][0] + dx), sn(drag.opts[i][1] + dy)]; fitStroke(it); }
+      else if (h === 'a') { it.x = sn(o.x + dx); it.y = sn(o.y + dy); it.w = o.x + o.w - it.x; it.h = o.y + o.h - it.y; }
       else if (h === 'b') { it.w = sn(o.x + o.w + dx) - o.x; it.h = sn(o.y + o.h + dy) - o.y; }
       else {
         let x1 = o.x, y1 = o.y, x2 = o.x + o.w, y2 = o.y + o.h;
@@ -194,6 +262,11 @@ export function init(a, el) {
         if (h.includes('s')) y2 = sn(y2 + dy);
         it.x = Math.min(x1, x2); it.y = Math.min(y1, y2);
         it.w = Math.max(GRID, Math.abs(x2 - x1)); it.h = Math.max(GRID, Math.abs(y2 - y1));
+        if (drag.opts) {   // a freehand drawing scales its points into the new box
+          const sx = it.w / (o.w || 1), sy = it.h / (o.h || 1);
+          it.pts = drag.opts.map(([a, b]) => [Math.round(it.x + (a - o.x) * sx), Math.round(it.y + (b - o.y) * sy)]);
+          fitStroke(it);
+        }
       }
     }
     drag.moved = true;
@@ -204,6 +277,13 @@ export function init(a, el) {
     const d = drag;
     drag = null; guides = [];
     if (!d || d.pan) return;
+    if (d.erase) return api.commit();
+    if (d.draw) {
+      const it = d.draw, p = api.part();
+      if (it.mode !== 'free' && it.w + it.h < 6) { p.items = p.items.filter(i => i !== it); return render(); }   // a click, not a line
+      if (it.mode === 'curve') api.select(it.id); else render();   // show the curve's handles straight away
+      return api.commit();
+    }
     if (d.mq) {
       const r = d.p1 && { x: Math.min(d.p0.x, d.p1.x), y: Math.min(d.p0.y, d.p1.y), w: Math.abs(d.p1.x - d.p0.x), h: Math.abs(d.p1.y - d.p0.y) };
       if (!r || r.w + r.h < 6 * scale()) return d.add ? render() : api.select(null);
@@ -344,11 +424,17 @@ function itemSVG(it, n) {
       H.forEach((v, i) => { const bh = (h - 40) * v; b += `<rect class="thin" fill="#eef1f6" x="${x + 20 + i * bw + bw * 0.15}" y="${y + h - 20 - bh}" width="${bw * 0.7}" height="${bh}"/>`; });
       break;
     }
+    case 'stroke': {
+      const d = strokePath(it);
+      b = `<path class="hitl" fill="none" d="${d}" style="stroke-width:${Math.max(16, it.sw + 10)}"/><path d="${d}" fill="none" stroke="${it.color}" stroke-width="${it.sw}" stroke-opacity="${it.op}" stroke-linecap="round" stroke-linejoin="round"/>`;
+      break;
+    }
     case 'note': b = rect('note') + block(t || it.label, x + 10, y + 6, w - 20, h - 12, 'nt', 16); break;
     case 'arrow': b = `<line class="hitl" x1="${x}" y1="${y}" x2="${x + w}" y2="${y + h}"/><line class="arrow" x1="${x}" y1="${y}" x2="${x + w}" y2="${y + h}" marker-end="url(#ah)"/>`; break;
   }
   if ((look === 'image' || look === 'video') && t) b += `<text class="t tm" x="${cx}" y="${y + h - 14}" text-anchor="middle">${esc(t)}</text>`;
-  if (showLabels) {
+  // drawings only get a tag once you've named them or added a note, so sketching doesn't fill the page with tags
+  if (showLabels && (look !== 'stroke' || it.note || it.label !== STROKE_LABELS[it.tool])) {
     const s = `${n} ${it.label}`, bw = s.length * 6.7 + 14;
     // tag sits on the top edge like a tab, so it covers as little of the content as possible
     let bx = x + 6, by = y - 9;
@@ -360,6 +446,12 @@ function itemSVG(it, n) {
 
 function selSVG(it, handles) {
   const s = 10 * scale(), { x, y, w, h } = it;
+  if (it.kind === 'stroke' && it.mode !== 'free') {   // lines and curves: drag the end points (and a curve's two control handles)
+    const p = it.pts, hd = (i, c = '') => `<circle class="hd" data-h="p${i}" style="cursor:crosshair" cx="${p[i][0]}" cy="${p[i][1]}" r="${(c ? 5 : 6) * scale()}"/>`;
+    return `<rect class="sel" x="${x - 4}" y="${y - 4}" width="${w + 8}" height="${h + 8}"/>` + (!handles ? '' : it.mode === 'curve'
+      ? `<path class="sel" d="M${p[0]}L${p[1]}M${p[3]}L${p[2]}"/>` + [0, 3].map(i => hd(i)).join('') + [1, 2].map(i => hd(i, 'c')).join('')
+      : hd(0) + hd(1));
+  }
   if (it.kind === 'arrow' && !handles) { const b = box(it); return `<rect class="sel" x="${b.x - 4}" y="${b.y - 4}" width="${b.w + 8}" height="${b.h + 8}"/>`; }
   const pts = !handles ? [] : it.kind === 'arrow' ? [['a', x, y], ['b', x + w, y + h]] : [['nw', x, y], ['ne', x + w, y], ['sw', x, y + h], ['se', x + w, y + h]];
   return (it.kind === 'arrow' ? '' : `<rect class="sel" x="${x}" y="${y}" width="${w}" height="${h}"/>`)
@@ -386,23 +478,40 @@ export function add(kind) {
   const w = w0 === 1440 ? board.w : Math.min(w0, board.w), h = h0 === 900 ? board.h : h0;
   return make(kind, w0 === 1440 ? 0 : sn(vb.x + vb.w / 2 - w / 2), h0 === 900 ? 0 : sn(vb.y + vb.h / 2 - h / 2), w, h);
 }
-export const offset = it => { it.x += 20; it.y += 20; };
+export const offset = it => shift(it, 20, 20);
+
+function setTool(t) {
+  if (ink === '#facc15' && t !== 'highlight') ink = '#111111';   // highlighter yellow doesn't carry over to the pen
+  else if (t === 'highlight' && ink === '#111111') ink = '#facc15';
+  tool = t;
+  svg.style.cursor = t === 'select' ? '' : t === 'eraser' ? 'cell' : 'crosshair';
+  api.toolbar();
+}
 
 export function key(e) {
+  const t = Object.keys(TOOLS).find(k => TOOLS[k][1] === e.key.toUpperCase());
+  if (t && !e.shiftKey) { setTool(t); return true; }
   if (e.key === 'f' || e.key === 'F' || e.key === 'Home') { fit(); return true; }
   if (e.key === '+' || e.key === '=') { zoom(0.8); return true; }
   if (e.key === '-') { zoom(1.25); return true; }
   const list = api.part().items.filter(i => api.isSel(i.id)), st = e.shiftKey ? GRID * 10 : GRID;
   const d = { ArrowLeft: [-st, 0], ArrowRight: [st, 0], ArrowUp: [0, -st], ArrowDown: [0, st] }[e.key];
   if (!list.length || !d) return false;
-  list.forEach(it => { it.x += d[0]; it.y += d[1]; });
+  list.forEach(it => shift(it, d[0], d[1]));
   render(); api.commit();
   return true;
 }
 
-export const toolbar = () => `<button data-act="fit" title="F">Fit</button><button data-act="out" title="−">−</button><button data-act="in" title="+">+</button>`
+export const toolbar = () => Object.entries(TOOLS).map(([k, [name, key]]) => `<button data-act="tool:${k}" class="${tool === k ? 'on' : ''}" title="${name} (${key})">${name}</button>`).join('')
+  + (TOOLS[tool][4] ? `<span class="tb-gap"></span>` + Object.entries(INKS).map(([c, name]) => `<button data-act="ink:${c}" class="swatch${ink === c ? ' on' : ''}" title="${name}" aria-label="${name} ink" style="--c:${c}"></button>`).join('')
+    + [[0.5, 'Thin'], [1, 'Medium'], [2, 'Thick']].map(([s, l]) => `<button data-act="size:${s}" class="${inkSize === s ? 'on' : ''}">${l}</button>`).join('') : '')
+  + `<span class="tb-gap"></span><button data-act="fit" title="F">Fit</button><button data-act="out" title="−">−</button><button data-act="in" title="+">+</button>`
   + `<button data-act="labels" class="${showLabels ? 'on' : ''}">Labels</button><button data-act="snap" class="${snapOn ? 'on' : ''}">Snap + guides</button>`;
 export function act(a) {
+  const [k, v] = a.split(':');
+  if (k === 'tool') setTool(v);
+  if (k === 'ink') ink = v;
+  if (k === 'size') inkSize = +v;
   if (a === 'fit') fit();
   if (a === 'in') zoom(0.8);
   if (a === 'out') zoom(1.25);
@@ -411,6 +520,13 @@ export function act(a) {
 }
 
 export function fields(it) {
+  if (it.kind === 'stroke') return [
+    { key: 'label', label: 'Label (what this mark means)', type: 'text' },
+    { key: 'note', label: 'Note for Claude (e.g. "circle = make this bigger")', type: 'textarea' },
+    { key: 'color', label: 'Ink', type: 'select', options: Object.entries(INKS) },
+    { key: 'sw', label: 'Thickness', type: 'range', min: 0.5, max: 60, step: 0.5 },
+    { key: 'op', label: 'Opacity', type: 'range', min: 0.1, max: 1, step: 0.05 },
+  ];
   const look = KINDS[it.kind][3], arrow = look === 'arrow';
   const f = [
     { key: 'label', label: 'Label (what this is)', type: 'text' },
@@ -473,7 +589,7 @@ export async function snapshot() {
 
 export function describe() {
   const { board, items } = api.part(), num = it => items.indexOf(it) + 1, name = it => `#${num(it)} ${it.label}`;
-  const ui = items.filter(i => i.kind !== 'note' && i.kind !== 'arrow');
+  const ui = items.filter(i => !['note', 'arrow', 'stroke'].includes(i.kind));
   const area = a => a.w * a.h;
   // a is inside b; identical boxes nest the later one inside the earlier one
   const inside = (a, b) => a !== b && a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h
@@ -501,6 +617,13 @@ export function describe() {
     const on = at(it.x + it.w / 2, it.y + it.h / 2, it);
     return `- **#${num(it)}** note${on ? ` near ${name(on)}` : ''}: "${(it.text || it.label).replace(/\n/g, ' / ')}"${it.note ? `. ${it.note}` : ''}`;
   });
+  const marks = items.filter(i => i.kind === 'stroke').map(it => {
+    const p = it.pts, end = p[p.length - 1], where = (q) => { const o = at(q[0], q[1]); return o ? name(o) : `(${Math.round(q[0])}, ${Math.round(q[1])})`; };
+    const what = `${INKS[it.color]?.toLowerCase() || it.color} ${TOOLS[it.tool][0].toLowerCase()}`;
+    const s = it.mode === 'free' ? `${what} mark around x ${Math.round(it.x)}–${Math.round(it.x + it.w)}, y ${Math.round(it.y)}–${Math.round(it.y + it.h)}${at(it.x + it.w / 2, it.y + it.h / 2) ? `, over ${where([it.x + it.w / 2, it.y + it.h / 2])}` : ''}`
+      : `${what.replace(/straight line|curve/, '')}${it.mode === 'curve' ? 'curved line' : 'straight line'} from ${where(p[0])} to ${where(end)}`;
+    return `- **#${num(it)} ${it.label}**: ${s.replace(/\s+/g, ' ')}${it.note ? `. ${it.note}` : ''}`;
+  });
   return [
     '**Type:** 2D layout wireframe (website or app screen)',
     `**Artboard:** ${board.name || 'Custom'}, ${board.w} × ${board.h} px. Coordinates are px from the top-left corner.`,
@@ -513,6 +636,7 @@ export function describe() {
     '## Elements (indented = inside the element above)',
     ...out,
     ...(notes.length ? ['', '## Notes and interactions', ...notes] : []),
+    ...(marks.length ? ['', '## Hand-drawn marks (the designer sketching on top: read them like pen marks on a printout)', ...marks] : []),
   ].join('\n');
 }
 
